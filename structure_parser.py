@@ -7,14 +7,12 @@ def print_tree(path, prefix=""):
     items = sorted(os.listdir(path))
 
     items = [
-        item for item in items
-        if not item.startswith(".")
-        and item != "__pycache__"
-        and item != "__init__.py"
+        item
+        for item in items
+        if not item.startswith(".") and item != "__pycache__" and item != "__init__.py"
     ]
 
     for i, item in enumerate(items):
-
         full_path = os.path.join(path, item)
         connector = "└── " if i == len(items) - 1 else "├── "
 
