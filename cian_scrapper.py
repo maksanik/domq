@@ -19,7 +19,7 @@ logging.basicConfig(
 
 class BasePage:
     """Базовый класс для работы со страницами браузера."""
-    
+
     def __init__(self, page: Page):
         self.page = page
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -61,25 +61,31 @@ class BasePage:
 
 class CianFilterPage(BasePage):
     """Класс для взаимодействия со страницей фильтров Циана."""
-    
+
     def __init__(self, page: Page):
         super().__init__(page)
         self.url = "https://www.cian.ru/kupit-kvartiru/"
-        
+
         # Локаторы
         self.room_btn = self.page.locator('div[data-testid="roomType"] button')
-        self.one_room_option = self.page.locator('div[data-name="SelectOption"]:has-text("1-комнатная")')
-        self.two_rooms_option = self.page.locator('div[data-name="SelectOption"]:has-text("2-комнатная")')
-        self.three_rooms_option = self.page.locator('div[data-name="SelectOption"]:has-text("3-комнатная")')
-        
+        self.room_dropdown = self.page.locator(
+            'div[data-testid="roomType"] div[data-testid="DropdownSelect"]'
+        )
+
         self.price_dropdown = self.page.locator('div[data-testid="DropdownPrice"]')
         self.price_btn = self.page.locator('div[data-testid="price"] button')
-        self.min_input = self.price_dropdown.locator('input[data-name="MaskedInput"]').nth(0)
-        self.max_input = self.price_dropdown.locator('input[data-name="MaskedInput"]').nth(1)
-        
+        self.min_input = self.price_dropdown.locator(
+            'input[data-name="MaskedInput"]'
+        ).nth(0)
+        self.max_input = self.price_dropdown.locator(
+            'input[data-name="MaskedInput"]'
+        ).nth(1)
+
         self.preloader = self.page.locator('div[data-testid="PagePreloader"]')
-        
-        self.summary_header = self.page.locator('div[data-testid="SummaryHeader"] h5').first
+
+        self.summary_header = self.page.locator(
+            'div[data-testid="SummaryHeader"] h5'
+        ).first
 
         # Клавиша модификатор (Cmd для Mac, Ctrl для Windows/Linux)
         self.modifier = "Meta" if sys.platform == "darwin" else "Control"
@@ -89,18 +95,31 @@ class CianFilterPage(BasePage):
         self.logger.info(f"Переход на {self.url}")
         await self.page.goto(self.url)
 
-    async def select_one_room(self) -> bool:
-        """Выбор 1-комнатной квартиры через современные локаторы."""
-        self.logger.info("Выбор фильтра '1-комнатная'")
+    async def select_room_count(self, count: int) -> bool:
+        """Выбор комнаты квартиры через современные локаторы."""
+        if count < 1 or count > 6:
+            self.logger.error("Введён некорректный count в select_room_count")
+            raise Exception
+
+        self.logger.info(f"Выбор фильтра {count}-комнатная")
+
         try:
-            await self.room_btn.click(timeout=5000)
+            if not await self.room_dropdown.is_visible():
+                await self.room_btn.click(timeout=5000)
+                await self.random_sleep(0.5, 1.0)
+
+            room_option = self.page.locator(
+                f'div[data-name="SelectOption"]:has-text("{count}-комнатная")'
+            )
+
+            await room_option.click(timeout=5000)
+
             await self.random_sleep(0.5, 1.0)
 
-            await self.one_room_option.click(timeout=5000)
-            await self.random_sleep(0.5, 1.0)
+            self.logger.info(f"{count}-комнатная квартира выбрана")
 
-            self.logger.info("1-комнатная квартира выбрана")
             return True
+
         except TimeoutError:
             self.logger.error("Не удалось открыть фильтр комнат (Таймаут)")
             return False
@@ -109,7 +128,7 @@ class CianFilterPage(BasePage):
         """Ввод цены с защитой от зацикливания и надежной очисткой инпутов."""
         try:
             self.logger.info(f"Установка цены от {min_price} до {max_price}")
-            
+
             # Если дропдаун скрыт, открываем его
             if not await self.price_dropdown.is_visible():
                 await self.price_btn.click()
@@ -120,29 +139,33 @@ class CianFilterPage(BasePage):
                 current_val = (await self.min_input.input_value()).replace(" ", "")
                 if current_val == str(min_price):
                     break
-                    
+
                 await self.min_input.click()
                 await self.min_input.press(f"{self.modifier}+A")
                 await self.min_input.press("Backspace")
                 await self.min_input.type(str(min_price), delay=50)
                 await self.random_sleep(0.3, 0.7)
             else:
-                self.logger.warning("Не удалось корректно ввести min_price за 5 попыток.")
+                self.logger.warning(
+                    "Не удалось корректно ввести min_price за 5 попыток."
+                )
 
             # Ввод максимальной цены
             for _ in range(5):
                 current_val = (await self.max_input.input_value()).replace(" ", "")
                 if current_val == str(max_price):
                     break
-                
+
                 await self.max_input.click()
                 await self.max_input.press(f"{self.modifier}+A")
                 await self.max_input.press("Backspace")
                 await self.max_input.type(str(max_price), delay=50)
-                await self.max_input.press("Enter") # Применяем фильтр
+                await self.max_input.press("Enter")  # Применяем фильтр
             else:
-                self.logger.warning("Не удалось корректно ввести max_price за 5 попыток.")
-                
+                self.logger.warning(
+                    "Не удалось корректно ввести max_price за 5 попыток."
+                )
+
             await self.random_sleep(1.5, 2)
             self.logger.info("Цена установлена")
         except TimeoutError:
@@ -155,7 +178,7 @@ class CianFilterPage(BasePage):
             if await self.preloader.is_visible():
                 await self.preloader.wait_for(state="hidden", timeout=8000)
         except Exception:
-            pass # Игнорируем, если прелоадера не было
+            pass  # Игнорируем, если прелоадера не было
 
         # Даем React-у время отрендерить новые цифры
         await asyncio.sleep(1)
@@ -163,13 +186,13 @@ class CianFilterPage(BasePage):
         try:
             await self.summary_header.wait_for(state="visible", timeout=5000)
             text = await self.summary_header.text_content()
-            
+
             if not text:
                 return 0
-                
+
             digits = re.sub(r"\D", "", text)
             number = int(digits) if digits else 0
-            
+
             self.logger.info(f"Найдено объявлений: {number}")
             return number
         except TimeoutError:
@@ -179,7 +202,7 @@ class CianFilterPage(BasePage):
 
 class CianScraper:
     """Оркестратор скрипта. Управляет браузером и бизнес-логикой."""
-    
+
     def __init__(self, user_data_dir: str = "cian_profile"):
         self.user_data_dir = user_data_dir
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -189,7 +212,7 @@ class CianScraper:
         ABSOLUTE_MAX_PRICE = 150_000_000
         MAX_LISTINGS = 1000
         IDEAL_MIN = 800
-        
+
         chunks = []
         current_min = 0
 
@@ -201,14 +224,16 @@ class CianScraper:
             # Внутренний бинарный поиск для нахождения идеального current_max
             while low <= high:
                 mid = (low + high) // 2
-                
-                # ВАЖНО: Cian может не принимать слишком мелкие шаги, 
+
+                # ВАЖНО: Cian может не принимать слишком мелкие шаги,
                 # можно округлять mid до 1000, если нужно
-                
+
                 await cian_page.select_price_range(current_min, mid)
                 count = await cian_page.get_listings_count()
-                
-                self.logger.info(f"Проверка диапазона {current_min} - {mid}: найдено {count}")
+
+                self.logger.info(
+                    f"Проверка диапазона {current_min} - {mid}: найдено {count}"
+                )
 
                 if count > MAX_LISTINGS:
                     # Слишком много объявлений, нужно уменьшить правую границу
@@ -217,27 +242,21 @@ class CianScraper:
                     # Подходит, но пробуем расширить диапазон (жадный поиск)
                     best_max_for_chunk = mid
                     low = mid + 1
-                    
+
                     # Если мы уже попали в "золотую середину", можно не продолжать поиск
                     if count >= IDEAL_MIN:
                         break
-            
-            # Если бинарный поиск не смог сдвинуться (например, на одной цене 2000 квартир)
-            if best_max_for_chunk == current_min and count > MAX_LISTINGS:
-                self.logger.warning(f"Невозможно разбить диапазон: на цене {current_min} более {count} объявлений.")
-                # Силой расширяем на 1, чтобы избежать вечного цикла
-                best_max_for_chunk = current_min + 1
 
             chunks.append((current_min, best_max_for_chunk))
             self.logger.info(f"Добавлен чанк: {current_min} - {best_max_for_chunk}")
 
             # Следующий чанк начинается со следующего рубля
             current_min = best_max_for_chunk + 1
-            
+
             # Ограничение из вашего кода (для тестов)
-            if len(chunks) >= 3:
+            if len(chunks) >= 2:
                 break
-                
+
         return chunks
 
     async def run(self):
@@ -251,7 +270,7 @@ class CianScraper:
                 headless=False,
                 channel="chrome",
                 args=["--disable-blink-features=AutomationControlled"],
-                viewport={"width": 1366, "height": 768}
+                viewport={"width": 1366, "height": 768},
             )
 
             page = context.pages[0] if context.pages else await context.new_page()
@@ -260,18 +279,33 @@ class CianScraper:
             # --- Сценарий выполнения ---
             await cian_page.open()
             await cian_page.wait_for_human_captcha()
-            
+
             await cian_page.human_scroll()
             await cian_page.random_sleep()
 
-            success = await cian_page.select_one_room()
+            success = await cian_page.select_room_count(1)
             if not success:
-                self.logger.error("Критическая ошибка: фильтр комнат не применен. Выход.")
+                self.logger.error(
+                    "Критическая ошибка: фильтр комнат не применен. Выход."
+                )
                 await context.close()
                 return
 
             # Запуск алгоритма подбора цены
-            await self._adjust_price_ranges(cian_page)
+            one_room_chunks = await self._adjust_price_ranges(cian_page)
+
+            success = await cian_page.select_room_count(1)
+            success = await cian_page.select_room_count(2)
+            if not success:
+                self.logger.error(
+                    "Критическая ошибка: фильтр комнат не применен. Выход."
+                )
+                await context.close()
+                return
+
+            two_room_chunks = await self._adjust_price_ranges(cian_page)
+
+            print(one_room_chunks, two_room_chunks)
 
             # Завершение
             self.logger.info("Скрипт завершил работу")
