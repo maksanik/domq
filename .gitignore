@@ -4,3 +4,4 @@ __pycache__/
 .vscode/
 cian_profile/
 bot.log
+*/cian_data.db
