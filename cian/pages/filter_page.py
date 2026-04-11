@@ -10,6 +10,7 @@ class CianFilterPage(BasePage):
 
     def __init__(self, page: Page):
         super().__init__(page)
+
         self.url = "https://www.cian.ru/kupit-kvartiru/"
 
         # Локаторы
@@ -41,6 +42,8 @@ class CianFilterPage(BasePage):
             self.logger.error("Введён некорректный count в select_room_count")
             raise Exception
 
+        await self.scroll_to_top()
+
         target_label = f"{count}-комнатная"
         self.logger.info(f"Установка фильтра строго на: {target_label}")
 
@@ -69,9 +72,11 @@ class CianFilterPage(BasePage):
                     await self.random_sleep(0.3, 0.5)
 
             if await self.room_dropdown.is_visible():
+                await self.scroll_to_top()
                 await self.room_btn.click()
 
             return True
+
         except Exception as e:
             self.logger.error(f"Ошибка при настройке фильтра комнат: {e}")
             return False

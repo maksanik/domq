@@ -116,7 +116,6 @@ class RangeScraper:
             await cian_page.random_sleep()
 
             for rooms_number in range(1, 7):
-                await cian_page.scroll_to_top()
                 await self.load_price_ranges(cian_page, rooms_number)
 
             self.logger.info("Скрипт завершил работу")
