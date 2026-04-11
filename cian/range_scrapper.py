@@ -13,7 +13,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
-        logging.FileHandler("bot.log", encoding="utf-8"),
+        logging.FileHandler("cian/bot.log", encoding="utf-8"),
         logging.StreamHandler(),
     ],
 )
@@ -22,7 +22,7 @@ logging.basicConfig(
 class ChunkDatabase:
     """Класс для взаимодействия с SQLite БД для хранения чанков цен."""
 
-    def __init__(self, db_path: str = "cian_data.db"):
+    def __init__(self, db_path: str = "cian/cian_data.db"):
         self.db_path = db_path
         # Указываем IDE, что здесь будет либо подключение, либо None
         self.db: aiosqlite.Connection = None  # type: ignore
@@ -324,7 +324,7 @@ class CianScraper:
     """Оркестратор скрипта. Управляет браузером и бизнес-логикой."""
 
     def __init__(
-        self, user_data_dir: str = "cian_profile", db_path: str = "cian_data.db"
+        self, user_data_dir: str = "cian_profile", db_path: str = "cian/cian_data.db"
     ):
         self.user_data_dir = user_data_dir
         self.db_path = db_path  # Передаем путь к базе

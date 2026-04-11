@@ -2,14 +2,24 @@ import os
 
 root_dir = os.path.dirname(os.path.abspath(__file__))
 
+# сюда добавляешь все папки/файлы, которые нужно скрыть
+EXCLUDED = {
+    ".venv",
+    "venv",
+    ".git",
+    "__pycache__",
+    "__init__.py",
+    ".continue",
+    ".ruff_cache",
+    "cian_profile",
+}
+
 
 def print_tree(path, prefix=""):
     items = sorted(os.listdir(path))
 
     items = [
-        item
-        for item in items
-        if not item.startswith(".") and item != "__pycache__" and item != "__init__.py"
+        item for item in items if not item.startswith(".") and item not in EXCLUDED
     ]
 
     for i, item in enumerate(items):
