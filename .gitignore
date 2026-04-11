@@ -2,6 +2,7 @@ __pycache__/
 .continue/
 .venv/
 .vscode/
+.ruff_cache/
 cian_profile/
 bot.log
 */cian_data.db
