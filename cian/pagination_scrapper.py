@@ -2,6 +2,8 @@ import asyncio
 import json
 import logging
 import math
+import random
+from datetime import datetime, timezone
 
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
@@ -9,38 +11,79 @@ from playwright_stealth import Stealth
 from cian.browser import get_browser_context
 from cian.pages.base_page import BasePage
 from db.db_manager import DatabaseManager
-from config import setup_logging, USER_DATA_DIR, DB_PATH
+from config import setup_logging, USER_DATA_DIR
 
 API_URL = "https://api.cian.ru/search-offers/v2/search-offers-desktop/"
 OFFERS_PER_PAGE = 28
 MAX_PAGES = 54
 
+# Задержки между запросами (секунды)
+PAGE_DELAY_MIN = 2.0
+PAGE_DELAY_MAX = 5.0
+CHUNK_DELAY_MIN = 5.0
+CHUNK_DELAY_MAX = 10.0
+
+# Retry-параметры
+MAX_RETRIES = 3
+RETRY_BACKOFF_BASE = 30.0  # базовая пауза при 429/503 (секунды)
+
 
 class PaginationScraper:
     """Скрапер для сбора объявлений постранично по чанкам цен."""
 
-    def __init__(self, user_data_dir: str, db_path: str):
+    def __init__(self, user_data_dir: str):
         self.user_data_dir = user_data_dir
-        self.db_path = db_path
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def _extract_listings(self, offers: list) -> list[dict]:
-        """Извлекает нужные поля из списка офферов Cian API."""
+        """Извлекает все доступные поля из офферов Cian API и сохраняет в listings_raw."""
         result = []
         for offer in offers:
             try:
-                address_parts = offer.get("geo", {}).get("address", [])
+                geo = offer.get("geo", {})
+                address_parts = geo.get("address", [])
                 address = ", ".join(p["name"] for p in address_parts if p.get("name"))
+
+                # Координаты могут быть в geo.coordinates или geo.jk
+                coords = geo.get("coordinates") or {}
+                lat = coords.get("lat")
+                lng = coords.get("lng")
+
+                building = offer.get("building") or {}
+                photos = offer.get("photos") or []
+
+                # Дата публикации на Циане
+                created_raw = offer.get("creationDate")
+                created_at = None
+                if created_raw:
+                    try:
+                        created_at = datetime.fromisoformat(
+                            created_raw.replace("Z", "+00:00")
+                        )
+                    except (ValueError, AttributeError):
+                        pass
 
                 result.append(
                     {
-                        "id": offer.get("id"),
+                        "source": "cian",
+                        "external_id": str(offer["id"]),
+                        "url": offer.get("fullUrl"),
+                        "title": offer.get("title"),
+                        "description": offer.get("description"),
                         "price": offer.get("bargainTerms", {}).get("price"),
-                        "total_area": offer.get("totalArea"),
-                        "rooms_count": offer.get("roomsCount"),
-                        "floor_number": offer.get("floorNumber"),
-                        "floors_count": offer.get("building", {}).get("floorsCount"),
-                        "address": address,
+                        "area_total": offer.get("totalArea"),
+                        "area_kitchen": offer.get("kitchenArea"),
+                        "rooms": offer.get("roomsCount"),
+                        "floor": offer.get("floorNumber"),
+                        "floors_total": building.get("floorsCount"),
+                        "latitude": lat,
+                        "longitude": lng,
+                        "address_text": address,
+                        "year_built": building.get("buildYear"),
+                        "material_type": building.get("materialType"),
+                        "images_count": len(photos),
+                        "has_photos": len(photos) > 0,
+                        "created_at": created_at,
                     }
                 )
             except Exception as e:
@@ -76,21 +119,42 @@ class PaginationScraper:
             f"(комн: {rooms_number}, цена: {min_price}-{max_price})"
         )
 
-        response = await context.request.post(
-            API_URL,
-            data=json.dumps(payload),
-            headers={
-                "Content-Type": "application/json",
-                "Origin": "https://www.cian.ru",
-                "Referer": "https://www.cian.ru/",
-            },
-        )
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Origin": "https://www.cian.ru",
+            "Referer": "https://www.cian.ru/kupit-kvartiru/",
+            "sec-fetch-site": "same-site",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+        }
 
-        if not response.ok:
-            self.logger.error(f"HTTP {response.status} на странице {page_num}")
-            return {}
+        for attempt in range(1, MAX_RETRIES + 1):
+            response = await context.request.post(
+                API_URL,
+                data=json.dumps(payload),
+                headers=headers,
+            )
 
-        return await response.json()
+            if response.status == 429 or response.status == 503:
+                wait = RETRY_BACKOFF_BASE * (2 ** (attempt - 1)) + random.uniform(0, 10)
+                self.logger.warning(
+                    f"HTTP {response.status} на стр. {page_num}, "
+                    f"попытка {attempt}/{MAX_RETRIES}, ждём {wait:.0f}с"
+                )
+                await asyncio.sleep(wait)
+                continue
+
+            if not response.ok:
+                self.logger.error(f"HTTP {response.status} на странице {page_num}")
+                return {}
+
+            return await response.json()
+
+        self.logger.error(f"Страница {page_num}: все {MAX_RETRIES} попытки исчерпаны")
+        return {}
 
     async def _scrape_chunk(
         self,
@@ -101,7 +165,7 @@ class PaginationScraper:
         max_price: int,
         listings_count: int,
     ):
-        """Скрапит все страницы одного чанка и сохраняет в БД."""
+        """Скрапит все страницы одного чанка и сохраняет в listings_raw."""
         total_pages = min(math.ceil(listings_count / OFFERS_PER_PAGE), MAX_PAGES)
         self.logger.info(
             f"Чанк {rooms_number}к {min_price}-{max_price}: "
@@ -121,13 +185,15 @@ class PaginationScraper:
 
             listings = self._extract_listings(offers)
             for listing in listings:
-                await db.save_listing(listing)
+                await db.save_raw_listing(listing)
                 saved += 1
 
             self.logger.info(
                 f"Страница {page_num}/{total_pages}: получено {len(listings)} объявлений"
             )
-            await asyncio.sleep(0.5)
+            delay = random.uniform(PAGE_DELAY_MIN, PAGE_DELAY_MAX)
+            self.logger.info(f"Пауза {delay:.1f}с перед следующей страницей")
+            await asyncio.sleep(delay)
 
         self.logger.info(f"Чанк завершён: итого сохранено {saved} объявлений")
         await db.mark_chunk_scraped(rooms_number, min_price)
@@ -141,15 +207,16 @@ class PaginationScraper:
             page = context.pages[0] if context.pages else await context.new_page()
             base_page = BasePage(page)
 
-            # Открываем Циан для инициализации сессии и куки
             await page.goto("https://www.cian.ru/kupit-kvartiru/")
             await base_page.wait_for_human_captcha()
 
-            async with DatabaseManager(self.db_path) as db:
+            async with DatabaseManager() as db:
                 chunks = await db.get_unscraped_chunks()
                 self.logger.info(f"Чанков для скрапинга: {len(chunks)}")
 
-                for chunk in chunks:
+                run_started_at = datetime.now(timezone.utc)
+
+                for i, chunk in enumerate(chunks):
                     await self._scrape_chunk(
                         context,
                         db,
@@ -158,6 +225,13 @@ class PaginationScraper:
                         chunk["max_price"],
                         chunk["listings_count"],
                     )
+                    if i < len(chunks) - 1:
+                        delay = random.uniform(CHUNK_DELAY_MIN, CHUNK_DELAY_MAX)
+                        self.logger.info(f"Пауза {delay:.0f}с между чанками")
+                        await asyncio.sleep(delay)
+
+                deactivated = await db.deactivate_unseen_listings(run_started_at)
+                self.logger.info(f"Деактивировано пропавших объявлений: {deactivated}")
 
             self.logger.info("Скрапинг завершён")
             await asyncio.to_thread(input, "Нажми Enter для закрытия браузера...")
@@ -166,5 +240,5 @@ class PaginationScraper:
 
 if __name__ == "__main__":
     setup_logging()
-    scraper = PaginationScraper(user_data_dir=USER_DATA_DIR, db_path=DB_PATH)
+    scraper = PaginationScraper(user_data_dir=USER_DATA_DIR)
     asyncio.run(scraper.run())

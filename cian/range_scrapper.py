@@ -6,15 +6,14 @@ from playwright_stealth import Stealth
 from cian.browser import get_browser_context
 from cian.pages.filter_page import CianFilterPage
 from db.db_manager import DatabaseManager
-from config import setup_logging, USER_DATA_DIR, DB_PATH
+from config import setup_logging, USER_DATA_DIR
 
 
 class RangeScraper:
     """Оркестратор сбора диапазонов цен (чанков)."""
 
-    def __init__(self, user_data_dir: str, db_path: str):
+    def __init__(self, user_data_dir: str):
         self.user_data_dir = user_data_dir
-        self.db_path = db_path
         self.logger = logging.getLogger(self.__class__.__name__)
 
     async def _find_next_price_chunk(
@@ -72,7 +71,7 @@ class RangeScraper:
             )
             return
 
-        async with DatabaseManager(self.db_path) as db:
+        async with DatabaseManager() as db:
             while current_min < ABSOLUTE_MAX_PRICE:
                 cached_max = await db.get_max_price(rooms_number, current_min)
 
@@ -125,9 +124,6 @@ class RangeScraper:
 
 
 if __name__ == "__main__":
-    # Настраиваем логирование один раз на старте
     setup_logging()
-
-    # Инициализируем и запускаем скрапер
-    scraper = RangeScraper(user_data_dir=USER_DATA_DIR, db_path=DB_PATH)
+    scraper = RangeScraper(user_data_dir=USER_DATA_DIR)
     asyncio.run(scraper.run())

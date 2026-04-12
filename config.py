@@ -1,13 +1,27 @@
 import logging
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # Пути
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "cian")
-DB_PATH = os.path.join("db/cian_data.db")
 USER_DATA_DIR = os.path.join(BASE_DIR, "cian/cian_profile")
 
-# Создаем папку, если ее нет
+# PostgreSQL — SQLAlchemy async URL (для FastAPI и Alembic)
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+asyncpg://domq:domq_dev@localhost:5432/domq",
+)
+
+# asyncpg native URL (без +asyncpg — для DatabaseManager)
+DATABASE_DSN = os.getenv(
+    "DATABASE_DSN",
+    "postgresql://domq:domq_dev@localhost:5432/domq",
+)
+
 os.makedirs(DATA_DIR, exist_ok=True)
 
 

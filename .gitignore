@@ -9,3 +9,5 @@ bot.log
 */cian_data.db
 .claude/
 CLAUDE.md
+.env
+docs/

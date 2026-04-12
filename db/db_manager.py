@@ -1,126 +1,156 @@
-import aiosqlite
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert
+
+from db.models import ListingRaw, PriceChunk
+from db.session import AsyncSessionLocal
 
 
 class DatabaseManager:
-    """Класс для взаимодействия с SQLite БД."""
+    """Async context manager для работы с PostgreSQL через SQLAlchemy AsyncSession."""
 
-    def __init__(self, db_path: str):
-        self.db_path = db_path
-        self.db: aiosqlite.Connection = None  # type: ignore
+    def __init__(self):
+        self.session: AsyncSession = None  # type: ignore[assignment]
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    async def __aenter__(self):
-        import os
-
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-
-        self.db = await aiosqlite.connect(self.db_path)
-        await self._init_db()
+    async def __aenter__(self) -> "DatabaseManager":
+        self.session = AsyncSessionLocal()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.db:
-            await self.db.close()
+        if self.session:
+            if exc_type:
+                await self.session.rollback()
+            await self.session.close()
 
-    async def _init_db(self):
-        await self.db.execute("""
-            CREATE TABLE IF NOT EXISTS price_chunks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                rooms_number INTEGER,
-                min_price INTEGER,
-                max_price INTEGER,
-                listings_count INTEGER,
-                scraped INTEGER DEFAULT 0,
-                UNIQUE(rooms_number, min_price)
-            )
-        """)
-        # Миграция: добавляем столбец scraped если таблица уже существовала без него
-        try:
-            await self.db.execute(
-                "ALTER TABLE price_chunks ADD COLUMN scraped INTEGER DEFAULT 0"
-            )
-        except Exception:
-            pass
-
-        await self.db.execute("""
-            CREATE TABLE IF NOT EXISTS listings (
-                id INTEGER PRIMARY KEY,
-                rooms_count INTEGER,
-                price INTEGER,
-                total_area REAL,
-                floor_number INTEGER,
-                floors_count INTEGER,
-                address TEXT,
-                scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        await self.db.commit()
+    # ------------------------------------------------------------------
+    # price_chunks
+    # ------------------------------------------------------------------
 
     async def get_max_price(self, rooms_number: int, min_price: int) -> Optional[int]:
-        async with self.db.execute(
-            "SELECT max_price FROM price_chunks WHERE rooms_number = ? AND min_price = ?",
-            (rooms_number, min_price),
-        ) as cursor:
-            row = await cursor.fetchone()
-            return row[0] if row else None
+        result = await self.session.execute(
+            select(PriceChunk.max_price).where(
+                PriceChunk.rooms_number == rooms_number,
+                PriceChunk.min_price == min_price,
+            )
+        )
+        return result.scalar_one_or_none()
 
     async def save_chunk(
         self, rooms_number: int, min_price: int, max_price: int, listings_count: int
     ):
         try:
-            await self.db.execute(
-                "INSERT INTO price_chunks (rooms_number, min_price, max_price, listings_count) VALUES (?, ?, ?, ?)",
-                (rooms_number, min_price, max_price, listings_count),
+            stmt = (
+                insert(PriceChunk)
+                .values(
+                    rooms_number=rooms_number,
+                    min_price=min_price,
+                    max_price=max_price,
+                    listings_count=listings_count,
+                )
+                .on_conflict_do_nothing(index_elements=["rooms_number", "min_price"])
             )
-            await self.db.commit()
-        except aiosqlite.IntegrityError:
-            self.logger.warning(
-                f"Попытка дублирования чанка в БД: {rooms_number} комн, {min_price}-{max_price}"
-            )
-
-    async def save_listing(self, listing: dict):
-        try:
-            await self.db.execute(
-                """INSERT OR IGNORE INTO listings
-                   (id, rooms_count, price, total_area, floor_number, floors_count, address)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    listing["id"],
-                    listing.get("rooms_count"),
-                    listing.get("price"),
-                    listing.get("total_area"),
-                    listing.get("floor_number"),
-                    listing.get("floors_count"),
-                    listing.get("address"),
-                ),
-            )
-            await self.db.commit()
+            await self.session.execute(stmt)
+            await self.session.commit()
         except Exception as e:
-            self.logger.error(f"Ошибка сохранения объявления {listing.get('id')}: {e}")
+            await self.session.rollback()
+            self.logger.error(f"Ошибка сохранения чанка: {e}")
 
     async def mark_chunk_scraped(self, rooms_number: int, min_price: int):
-        await self.db.execute(
-            "UPDATE price_chunks SET scraped = 1 WHERE rooms_number = ? AND min_price = ?",
-            (rooms_number, min_price),
+        await self.session.execute(
+            update(PriceChunk)
+            .where(
+                PriceChunk.rooms_number == rooms_number,
+                PriceChunk.min_price == min_price,
+            )
+            .values(scraped_at=datetime.now(timezone.utc))
         )
-        await self.db.commit()
+        await self.session.commit()
 
     async def get_unscraped_chunks(self) -> list[dict]:
-        async with self.db.execute(
-            """SELECT rooms_number, min_price, max_price, listings_count
-               FROM price_chunks
-               WHERE scraped = 0 OR scraped IS NULL
-               ORDER BY rooms_number, min_price"""
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [
-                {
-                    "rooms_number": r[0],
-                    "min_price": r[1],
-                    "max_price": r[2],
-                    "listings_count": r[3],
-                }
-                for r in rows
-            ]
+        stale_threshold = datetime.now(timezone.utc) - timedelta(weeks=1)
+        result = await self.session.execute(
+            select(
+                PriceChunk.rooms_number,
+                PriceChunk.min_price,
+                PriceChunk.max_price,
+                PriceChunk.listings_count,
+            )
+            .where(
+                (PriceChunk.scraped_at == None)  # noqa: E711
+                | (PriceChunk.scraped_at < stale_threshold)
+            )
+            .order_by(PriceChunk.rooms_number, PriceChunk.min_price)
+        )
+        return [row._asdict() for row in result.all()]
+
+    async def deactivate_unseen_listings(self, since: datetime) -> int:
+        """Помечает is_active=False все объявления, не обновлявшиеся с момента since.
+
+        Вызывается после завершения полного прогона: любое объявление, которое
+        не появилось ни в одном чанке, считается снятым с публикации.
+        Возвращает количество деактивированных записей.
+        """
+        result = await self.session.execute(
+            update(ListingRaw)
+            .where(ListingRaw.is_active == True, ListingRaw.parsed_at < since)  # noqa: E712
+            .values(is_active=False)
+            .returning(ListingRaw.id)
+        )
+        deactivated = len(result.all())
+        await self.session.commit()
+        return deactivated
+
+    # ------------------------------------------------------------------
+    # listings_raw
+    # ------------------------------------------------------------------
+
+    async def save_raw_listing(self, listing: dict):
+        """Сохраняет сырое объявление. При конфликте (source, external_id) — пропускает."""
+        try:
+            stmt = (
+                insert(ListingRaw)
+                .values(
+                    source=listing.get("source"),
+                    external_id=listing.get("external_id"),
+                    url=listing.get("url"),
+                    title=listing.get("title"),
+                    description=listing.get("description"),
+                    price=listing.get("price"),
+                    area_total=listing.get("area_total"),
+                    area_kitchen=listing.get("area_kitchen"),
+                    rooms=listing.get("rooms"),
+                    floor=listing.get("floor"),
+                    floors_total=listing.get("floors_total"),
+                    latitude=listing.get("latitude"),
+                    longitude=listing.get("longitude"),
+                    address_text=listing.get("address_text"),
+                    year_built=listing.get("year_built"),
+                    material_type=listing.get("material_type"),
+                    images_count=listing.get("images_count"),
+                    has_photos=listing.get("has_photos"),
+                    created_at=listing.get("created_at"),
+                )
+                .on_conflict_do_update(
+                    index_elements=["source", "external_id"],
+                    set_={
+                        "price": listing.get("price"),
+                        "title": listing.get("title"),
+                        "images_count": listing.get("images_count"),
+                        "has_photos": listing.get("has_photos"),
+                        "parsed_at": datetime.now(timezone.utc),
+                        "is_active": True,
+                    },
+                )
+            )
+            await self.session.execute(stmt)
+            await self.session.commit()
+        except Exception as e:
+            await self.session.rollback()
+            self.logger.error(
+                f"Ошибка сохранения объявления {listing.get('external_id')}: {e}"
+            )
