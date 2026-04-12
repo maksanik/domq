@@ -32,8 +32,8 @@ class RangeScraper:
 
         low = current_min
         high = absolute_max
-        best_max_for_chunk = current_min
-        last_count = total_count
+        best_max_for_chunk: int = current_min
+        last_count: int = total_count
 
         first_guess_ratio = MAX_LISTINGS / total_count
         mid = current_min + int((absolute_max - current_min) * first_guess_ratio)
@@ -88,8 +88,8 @@ class RangeScraper:
                     next_chunk = await self._find_next_price_chunk(
                         cian_page, current_min, ABSOLUTE_MAX_PRICE
                     )
-                    current_max = next_chunk.get("current_max")
-                    listings_count = next_chunk.get("listings_count")
+                    current_max: int = next_chunk.get("current_max")
+                    listings_count: int = next_chunk.get("listings_count")
 
                     await db.save_chunk(
                         rooms_number, current_min, current_max, listings_count
@@ -113,7 +113,7 @@ class RangeScraper:
             await cian_page.open()
             await cian_page.wait_for_human_captcha()
             await cian_page.human_scroll()
-            await cian_page.random_sleep()
+            await cian_page.random_sleep(self.logger)
 
             for rooms_number in range(1, 7):
                 await self.load_price_ranges(cian_page, rooms_number)

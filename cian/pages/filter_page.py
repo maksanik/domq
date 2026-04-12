@@ -50,7 +50,7 @@ class CianFilterPage(BasePage):
         try:
             if not await self.room_dropdown.is_visible():
                 await self.room_btn.click(timeout=5000)
-                await self.random_sleep(0.6, 1.2)
+                await self.random_sleep(self.logger, 0.6, 1.2)
 
             options = self.page.locator('div[data-name="SelectOption"]')
             options_count = await options.count()
@@ -65,11 +65,11 @@ class CianFilterPage(BasePage):
                 if is_target and not is_selected:
                     await option.click()
                     self.logger.info(f"Включено: {text.strip()}")
-                    await self.random_sleep(0.3, 0.5)
+                    await self.random_sleep(self.logger, 0.3, 0.5)
                 elif not is_target and is_selected:
                     await option.click()
                     self.logger.info(f"Выключено: {text.strip()}")
-                    await self.random_sleep(0.3, 0.5)
+                    await self.random_sleep(self.logger, 0.3, 0.5)
 
             if await self.room_dropdown.is_visible():
                 await self.scroll_to_top()
@@ -86,7 +86,7 @@ class CianFilterPage(BasePage):
             self.logger.info(f"Установка цены от {min_price} до {max_price}")
             if not await self.price_dropdown.is_visible():
                 await self.price_btn.click()
-                await self.random_sleep(0.5, 1.0)
+                await self.random_sleep(self.logger, 0.5, 1.0)
 
             for _ in range(5):
                 current_val = (await self.min_input.input_value()).replace(" ", "")
@@ -96,7 +96,7 @@ class CianFilterPage(BasePage):
                 await self.min_input.press(f"{self.modifier}+A")
                 await self.min_input.press("Backspace")
                 await self.min_input.type(str(min_price), delay=50)
-                await self.random_sleep(0.3, 0.7)
+                await self.random_sleep(self.logger, 0.3, 0.7)
 
             for _ in range(5):
                 current_val = (await self.max_input.input_value()).replace(" ", "")
@@ -108,7 +108,7 @@ class CianFilterPage(BasePage):
                 await self.max_input.type(str(max_price), delay=50)
                 await self.max_input.press("Enter")
 
-            await self.random_sleep(1.5, 2)
+            await self.random_sleep(self.logger, 1.5, 2)
         except TimeoutError:
             self.logger.error("Ошибка при установке фильтра цены (Таймаут)")
 

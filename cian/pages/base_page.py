@@ -11,9 +11,13 @@ class BasePage:
         self.page = page
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    async def random_sleep(self, a: float = 0.8, b: float = 2.0):
+    @staticmethod
+    async def random_sleep(
+        logger: logging.Logger | None = None, a: float = 0.8, b: float = 2.0
+    ):
         t = random.uniform(a, b)
-        self.logger.info(f"Сон {t:.2f} сек.")
+        if logger:
+            logger.info(f"Сон {t:.2f} сек.")
         await asyncio.sleep(t)
 
     async def human_scroll(self, distance: int = 1200, step: int = 40):

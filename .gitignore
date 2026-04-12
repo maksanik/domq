@@ -3,6 +3,9 @@ __pycache__/
 .venv/
 .vscode/
 .ruff_cache/
+tmp/
 cian_profile/
 bot.log
 */cian_data.db
+.claude/
+CLAUDE.md
