@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 import logging
@@ -166,17 +167,27 @@ class PaginationScraper:
         listings_count: int,
     ):
         """Скрапит все страницы одного чанка и сохраняет в listings_raw."""
-        total_pages = min(math.ceil(listings_count / OFFERS_PER_PAGE), MAX_PAGES)
-        self.logger.info(
-            f"Чанк {rooms_number}к {min_price}-{max_price}: "
-            f"{listings_count} объявлений, {total_pages} страниц"
-        )
-
         saved = 0
-        for page_num in range(1, total_pages + 1):
+        total_pages = None
+
+        for page_num in range(1, MAX_PAGES + 1):
             data = await self._fetch_page(
                 context, rooms_number, min_price, max_price, page_num
             )
+
+            # На первой странице определяем реальное число страниц из ответа API
+            if page_num == 1:
+                api_count = (data.get("data") or {}).get("offerCount")
+                if api_count is not None:
+                    total_pages = min(math.ceil(api_count / OFFERS_PER_PAGE), MAX_PAGES)
+                else:
+                    total_pages = min(
+                        math.ceil(listings_count / OFFERS_PER_PAGE), MAX_PAGES
+                    )
+                self.logger.info(
+                    f"Чанк {rooms_number}к {min_price}-{max_price}: "
+                    f"{api_count or listings_count} объявлений, {total_pages} страниц"
+                )
 
             offers = data.get("data", {}).get("offersSerialized", [])
             if not offers:
@@ -191,6 +202,10 @@ class PaginationScraper:
             self.logger.info(
                 f"Страница {page_num}/{total_pages}: получено {len(listings)} объявлений"
             )
+
+            if total_pages is not None and page_num >= total_pages:
+                break
+
             delay = random.uniform(PAGE_DELAY_MIN, PAGE_DELAY_MAX)
             self.logger.info(f"Пауза {delay:.1f}с перед следующей страницей")
             await asyncio.sleep(delay)
@@ -198,7 +213,7 @@ class PaginationScraper:
         self.logger.info(f"Чанк завершён: итого сохранено {saved} объявлений")
         await db.mark_chunk_scraped(rooms_number, min_price)
 
-    async def run(self):
+    async def run(self, rescrape: bool = False):
         self.logger.info("Запуск Pagination Scraper")
 
         async with Stealth().use_async(async_playwright()) as p:
@@ -211,6 +226,10 @@ class PaginationScraper:
             await base_page.wait_for_human_captcha()
 
             async with DatabaseManager() as db:
+                if rescrape:
+                    count = await db.reset_all_chunks()
+                    self.logger.info(f"--rescrape: сброшено {count} чанков")
+
                 chunks = await db.get_unscraped_chunks()
                 self.logger.info(f"Чанков для скрапинга: {len(chunks)}")
 
@@ -239,6 +258,14 @@ class PaginationScraper:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Pagination scraper для Cian.ru")
+    parser.add_argument(
+        "--rescrape",
+        action="store_true",
+        help="Сбросить все чанки в 'не скрапировано' перед стартом",
+    )
+    args = parser.parse_args()
+
     setup_logging()
     scraper = PaginationScraper(user_data_dir=USER_DATA_DIR)
-    asyncio.run(scraper.run())
+    asyncio.run(scraper.run(rescrape=args.rescrape))
