@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DomQ — Оценить квартиру</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script type="module" src="api.js"></script>
+  <script type="module" src="utils.js"></script>
+  <style>
+    :root {
+      --primary: #2563EB;
+      --primary-light: #EFF6FF;
+      --hot: #EF4444;
+      --success: #16A34A;
+      --warning: #D97706;
+      --surface: #F8FAFC;
+      --border: #E2E8F0;
+      --text: #0F172A;
+      --muted: #64748B;
+      --radius: 12px;
+    }
+
+    body { background: var(--surface); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+    /* ── Navbar ── */
+    .navbar {
+      background: #fff; border-bottom: 1px solid var(--border);
+      padding: 0 1.5rem; height: 60px; display: flex; align-items: center; justify-content: space-between;
+    }
+    .navbar-brand { font-weight: 800; font-size: 1.35rem; color: var(--primary); letter-spacing: -0.5px; text-decoration: none; }
+    .navbar-brand span { color: var(--text); }
+    .nav-link { color: var(--muted); font-weight: 500; font-size: 0.9rem; padding: 5px 10px; border-radius: 6px; text-decoration: none; }
+    .nav-link:hover, .nav-link.active { background: var(--primary-light); color: var(--primary); }
+    .last-update { font-size: 0.75rem; color: var(--muted); background: var(--surface); padding: 4px 10px; border-radius: 20px; border: 1px solid var(--border); }
+
+    /* ── Page layout ── */
+    .page-wrap { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .page-header { margin-bottom: 2rem; }
+    .page-title { font-size: 1.6rem; font-weight: 900; color: var(--text); letter-spacing: -0.5px; }
+    .page-subtitle { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
+
+    /* ── Card ── */
+    .card {
+      background: #fff; border-radius: var(--radius); border: 1px solid var(--border);
+      padding: 1.5rem;
+    }
+    .card-section-title {
+      font-size: 0.75rem; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 1rem;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .card-section-title i { color: var(--primary); font-size: 0.85rem; }
+
+    /* ── Form ── */
+    .form-group { margin-bottom: 1rem; }
+    .form-label { font-size: 0.8rem; font-weight: 600; color: var(--text); margin-bottom: 5px; display: block; }
+    .form-label .req { color: var(--hot); margin-left: 2px; }
+
+    .input-row { display: flex; gap: 8px; }
+    .form-control, .form-select {
+      height: 40px; border: 1.5px solid var(--border); border-radius: 8px;
+      font-size: 0.875rem; color: var(--text); padding: 0 12px; outline: none;
+      transition: border-color .15s; background: #fff; width: 100%;
+    }
+    .form-control:focus, .form-select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+    .form-control[readonly] { background: var(--surface); color: var(--muted); }
+
+    .input-with-btn { display: flex; gap: 8px; }
+    .find-btn {
+      height: 40px; padding: 0 16px; background: var(--primary); color: #fff;
+      border: none; border-radius: 8px; font-weight: 600; font-size: 0.875rem; cursor: pointer;
+      white-space: nowrap; transition: opacity .15s;
+    }
+    .find-btn:hover { opacity: .88; }
+
+    .coords-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .coord-wrap { position: relative; }
+    .coord-wrap .bi { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: .8rem; }
+    .coord-wrap .form-control { padding-left: 28px; }
+
+    /* Mini map */
+    #miniMap { height: 200px; border-radius: 8px; overflow: hidden; border: 1.5px solid var(--border); margin-top: 6px; }
+    .map-hint { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+
+    /* Room chips */
+    .room-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .room-chip {
+      width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+      border: 1.5px solid var(--border); border-radius: 8px; font-weight: 600; font-size: 0.875rem;
+      cursor: pointer; color: var(--muted); transition: all .15s; background: #fff;
+    }
+    .room-chip:hover { border-color: var(--primary); color: var(--primary); }
+    .room-chip.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+    /* Calculate button */
+    .calc-btn {
+      width: 100%; height: 48px; background: var(--primary); color: #fff;
+      border: none; border-radius: 10px; font-weight: 700; font-size: 1rem; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: all .2s; margin-top: 8px;
+    }
+    .calc-btn:hover { background: #1d4ed8; transform: translateY(-1px); box-shadow: 0 4px 20px rgba(37,99,235,.3); }
+
+    /* ── Results ── */
+    .results-section { display: none; }
+    .results-section.visible { display: block; }
+
+    .price-hero {
+      background: linear-gradient(135deg, #1e3a8a 0%, #2563EB 100%);
+      border-radius: var(--radius); padding: 2rem; color: #fff; margin-bottom: 20px;
+      position: relative; overflow: hidden;
+    }
+    .price-hero::after {
+      content: ''; position: absolute; right: -30px; top: -30px;
+      width: 180px; height: 180px; border-radius: 50%;
+      background: rgba(255,255,255,.06);
+    }
+    .price-hero .label { font-size: 0.78rem; opacity: .7; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+    .price-hero .price { font-size: 2.4rem; font-weight: 900; letter-spacing: -1px; }
+    .price-hero .ppm2 { font-size: 0.9rem; opacity: .8; margin-top: 4px; }
+    .price-hero .badge-row { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .price-badge {
+      background: rgba(255,255,255,.15); color: #fff; font-size: 0.8rem; font-weight: 600;
+      padding: 5px 12px; border-radius: 20px; display: flex; align-items: center; gap: 5px;
+    }
+
+    .results-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+    @media (max-width: 600px) { .results-stats { grid-template-columns: 1fr 1fr; } }
+
+    .stat-box { background: var(--surface); border-radius: 8px; padding: 14px; border: 1px solid var(--border); }
+    .stat-label { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+    .stat-value { font-size: 1rem; font-weight: 700; color: var(--text); }
+
+    .compare-section { margin-bottom: 16px; }
+    .compare-title { font-size: 0.78rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 10px; }
+    .compare-bar { background: var(--surface); border-radius: 10px; padding: 14px 16px; border: 1px solid var(--border); }
+    .compare-labels { display: flex; justify-content: space-between; font-size: .78rem; color: var(--muted); margin-bottom: 6px; }
+    .track { height: 8px; background: #E2E8F0; border-radius: 4px; position: relative; overflow: visible; }
+    .fill { height: 100%; border-radius: 4px; background: linear-gradient(to right, #4ADE80, #16A34A); position: relative; }
+    .track-marker { position: absolute; right: -1px; top: -4px; width: 16px; height: 16px; background: var(--success); border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+    .compare-caption { font-size: .82rem; color: var(--success); font-weight: 600; margin-top: 8px; }
+
+    .chart-card { background: #fff; border-radius: var(--radius); border: 1px solid var(--border); padding: 1.25rem; margin-bottom: 16px; }
+    .chart-card-title { font-size: 0.78rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 12px; }
+
+    /* Warnings */
+    .warn-box { background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 8px; padding: 12px 14px; font-size: .82rem; color: var(--warning); display: flex; gap: 8px; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+
+<!-- ── Navbar ── -->
+<nav class="navbar">
+  <div style="display:flex;align-items:center;gap:24px">
+    <a class="navbar-brand" href="index.html">Dom<span>Q</span></a>
+    <div style="display:flex;gap:4px">
+      <a class="nav-link" href="index.html"><i class="bi bi-search me-1"></i>Поиск</a>
+      <a class="nav-link" href="map.html"><i class="bi bi-map me-1"></i>Карта рынка</a>
+      <a class="nav-link active" href="estimate.html"><i class="bi bi-calculator me-1"></i>Оценить квартиру</a>
+    </div>
+  </div>
+  <div class="last-update"><i class="bi bi-clock me-1"></i>Обновлено: 13.04.2026, 08:45</div>
+</nav>
+
+<!-- ── Page ── -->
+<div class="page-wrap">
+  <div class="page-header">
+    <div class="page-title"><i class="bi bi-calculator me-2" style="color:var(--primary)"></i>Оценить квартиру</div>
+    <div class="page-subtitle">Прогнозная рыночная стоимость на основе медианных цен по микролокации (H3)</div>
+  </div>
+
+  <div class="two-col">
+    <!-- LEFT: Form -->
+    <div>
+      <div class="card">
+        <div class="card-section-title"><i class="bi bi-geo-alt-fill"></i> Местоположение</div>
+
+        <div class="form-group">
+          <label class="form-label">Адрес</label>
+          <div class="input-with-btn">
+            <input class="form-control" type="text" id="addressInput" placeholder="ул. Арбат, 22, Москва" value="ул. Арбат, 22, Москва" />
+            <button class="find-btn" onclick="geocode()"><i class="bi bi-search"></i> Найти</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="coords-row">
+            <div class="coord-wrap">
+              <i class="bi bi-arrows-vertical"></i>
+              <input class="form-control" type="text" id="latInput" placeholder="Широта" value="55.7520" readonly />
+            </div>
+            <div class="coord-wrap">
+              <i class="bi bi-arrows"></i>
+              <input class="form-control" type="text" id="lngInput" placeholder="Долгота" value="37.6020" readonly />
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div id="miniMap"></div>
+          <div class="map-hint"><i class="bi bi-hand-index-thumb me-1"></i>Или кликните по точке на карте для уточнения координат</div>
+        </div>
+
+        <hr style="border-color:var(--border);margin:1rem 0" />
+        <div class="card-section-title"><i class="bi bi-house-fill"></i> Параметры квартиры</div>
+
+        <div class="form-group">
+          <label class="form-label">Комнатность <span class="req">*</span></label>
+          <div class="room-chips" id="roomChips">
+            <div class="room-chip">1</div>
+            <div class="room-chip active">2</div>
+            <div class="room-chip">3</div>
+            <div class="room-chip">4</div>
+            <div class="room-chip">5</div>
+            <div class="room-chip">6</div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Общая площадь, м² <span class="req">*</span></label>
+          <input class="form-control" type="number" placeholder="например, 56" value="56" />
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">Этаж <span class="req">*</span></label>
+            <input class="form-control" type="number" placeholder="4" value="4" />
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">Этажей в доме <span class="req">*</span></label>
+            <input class="form-control" type="number" placeholder="9" value="9" />
+          </div>
+        </div>
+
+        <button class="calc-btn" onclick="showResults()">
+          <i class="bi bi-lightning-charge-fill"></i> Рассчитать стоимость
+        </button>
+      </div>
+    </div>
+
+    <!-- RIGHT: Results -->
+    <div>
+      <!-- Idle state -->
+      <div id="idleState" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3rem 2rem;text-align:center;gap:16px">
+        <div style="width:80px;height:80px;background:var(--primary-light);border-radius:50%;display:flex;align-items:center;justify-content:center">
+          <i class="bi bi-calculator" style="font-size:2rem;color:var(--primary)"></i>
+        </div>
+        <div>
+          <div style="font-weight:700;font-size:1.05rem;color:var(--text);margin-bottom:6px">Введите параметры квартиры</div>
+          <div style="font-size:.85rem;color:var(--muted);line-height:1.5">Укажите адрес, площадь, комнатность и этаж — система рассчитает прогнозную рыночную стоимость</div>
+        </div>
+        <div style="background:var(--surface);border-radius:10px;padding:14px 18px;border:1px solid var(--border);text-align:left;width:100%">
+          <div style="font-size:.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Как работает оценка</div>
+          <div style="font-size:.82rem;color:var(--muted);display:flex;flex-direction:column;gap:6px">
+            <div><i class="bi bi-hexagon-fill me-2" style="color:var(--primary)"></i>Определяем H3-соту res.9 (~174 м) по координатам</div>
+            <div><i class="bi bi-bar-chart-fill me-2" style="color:var(--primary)"></i>Берём медианную цену / м² из аналогов в соте</div>
+            <div><i class="bi bi-layers-fill me-2" style="color:var(--primary)"></i>Применяем коррекцию на этаж (−3% за 1-й и последний)</div>
+            <div><i class="bi bi-clock-fill me-2" style="color:var(--primary)"></i>Показываем ликвидность — медианный срок продажи</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Results -->
+      <div class="results-section" id="resultsSection">
+        <!-- Warnings (скрыты по умолчанию) -->
+        <div id="warnLowData" class="warn-box" style="display:none">
+          <i class="bi bi-exclamation-triangle-fill" style="flex-shrink:0;margin-top:1px"></i>
+          <div><strong>Мало данных для этого района</strong> — в H3-соте менее 5 объявлений, прогноз приблизительный.</div>
+        </div>
+        <div id="warnNoData" class="warn-box" style="display:none;border-color:#FCA5A5;background:#FEF2F2;color:var(--hot)">
+          <i class="bi bi-x-octagon-fill" style="flex-shrink:0;margin-top:1px"></i>
+          <div><strong>Нет данных для этого местоположения</strong> — попробуйте выбрать точку на карте вручную.</div>
+        </div>
+
+        <!-- Price hero -->
+        <div class="price-hero">
+          <div class="label">Прогнозная рыночная стоимость</div>
+          <div class="price">10 696 000 ₽</div>
+          <div class="ppm2">191 000 ₽/м² · 56 м² · 2-комн.</div>
+          <div class="badge-row">
+            <div class="price-badge"><i class="bi bi-hexagon"></i> Арбат · H3 res.9</div>
+            <div class="price-badge"><i class="bi bi-layers"></i> 4 / 9 эт. · без корр.</div>
+            <div class="price-badge"><i class="bi bi-check-circle"></i> median_h3</div>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="results-stats">
+          <div class="stat-box">
+            <div class="stat-label">Цена / м² в расчёте</div>
+            <div class="stat-value" style="color:var(--primary)">191 000 ₽</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Медианный срок продажи</div>
+            <div class="stat-value">38 дней</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Аналогов в зоне</div>
+            <div class="stat-value">47 объявл.</div>
+          </div>
+        </div>
+
+        <!-- Compare -->
+        <div class="compare-section">
+          <div class="compare-title">Сравнение с рынком микрорайона (2-комн.)</div>
+          <div class="compare-bar">
+            <div class="compare-labels">
+              <span>Мин. в соте: 145 000 ₽/м²</span>
+              <span>Макс.: 320 000 ₽/м²</span>
+            </div>
+            <div class="track">
+              <div class="fill" style="width:53%">
+                <div class="track-marker"></div>
+              </div>
+            </div>
+            <div class="compare-caption"><i class="bi bi-check-circle-fill me-1"></i>Ваша квартира: 191 000 ₽/м² — близко к медиане (+3%)</div>
+          </div>
+        </div>
+
+        <!-- Chart -->
+        <div class="chart-card">
+          <div class="chart-card-title"><i class="bi bi-graph-up me-1"></i>Динамика медианной цены — 90 дней</div>
+          <canvas id="estimateChart" height="120"></canvas>
+        </div>
+
+        <!-- Actions -->
+        <div style="display:flex;gap:10px">
+          <a href="map.html" style="flex:1;height:40px;background:var(--primary);color:#fff;border-radius:8px;font-weight:600;font-size:.875rem;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:6px">
+            <i class="bi bi-map"></i> Смотреть на карте
+          </a>
+          <a href="index.html?h3=8911060006bffff" style="flex:1;height:40px;background:#fff;color:var(--primary);border:1.5px solid var(--primary);border-radius:8px;font-weight:600;font-size:.875rem;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:6px">
+            <i class="bi bi-search"></i> Аналоги в районе
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Mini map ──
+const miniMap = L.map('miniMap', { zoomControl: true, attributionControl: false }).setView([55.752, 37.602], 14);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(miniMap);
+
+let marker = L.marker([55.752, 37.602], { draggable: true }).addTo(miniMap);
+marker.on('dragend', e => {
+  const ll = e.target.getLatLng();
+  document.getElementById('latInput').value = ll.lat.toFixed(6);
+  document.getElementById('lngInput').value = ll.lng.toFixed(6);
+});
+miniMap.on('click', e => {
+  marker.setLatLng(e.latlng);
+  document.getElementById('latInput').value = e.latlng.lat.toFixed(6);
+  document.getElementById('lngInput').value = e.latlng.lng.toFixed(6);
+});
+
+// ── Room chips ──
+document.querySelectorAll('#roomChips .room-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('#roomChips .room-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+  });
+});
+
+// ── Geocode (stub) ──
+function geocode() {
+  const addr = document.getElementById('addressInput').value;
+  if (!addr) return;
+  // Stub: just animate
+  const btn = event.currentTarget;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+  setTimeout(() => {
+    btn.innerHTML = '<i class="bi bi-search"></i> Найти';
+    document.getElementById('latInput').value = '55.752041';
+    document.getElementById('lngInput').value = '37.602100';
+    marker.setLatLng([55.752041, 37.602100]);
+    miniMap.setView([55.752041, 37.602100], 15);
+  }, 800);
+}
+
+// ── Show results ──
+function showResults() {
+  // Считать значения из формы
+  const area = parseFloat(document.querySelector('input[placeholder="например, 56"]').value) || 56;
+  const floor = parseInt(document.querySelectorAll('input[type=number]')[2]?.value) || 4;
+  const floorsTotal = parseInt(document.querySelectorAll('input[type=number]')[3]?.value) || 9;
+  const activeRoomEl = document.querySelector('#roomChips .room-chip.active');
+  const rooms = activeRoomEl ? parseInt(activeRoomEl.textContent) : 2;
+
+  // Корректировка на этаж (−3% за 1-й и последний)
+  const isEdgeFloor = floor === 1 || floor === floorsTotal;
+  const MEDIAN_PPM2 = 191000;
+  const floorFactor = isEdgeFloor ? 0.97 : 1.0;
+  const ppm2Used = Math.round(MEDIAN_PPM2 * floorFactor);
+  const predictedPrice = Math.round(ppm2Used * area / 1000) * 1000;
+  const listingsInCell = 47; // mock
+
+  // Предупреждения
+  document.getElementById('warnLowData').style.display = listingsInCell < 5 ? 'flex' : 'none';
+  document.getElementById('warnNoData').style.display = 'none';
+
+  // Обновить hero
+  document.querySelector('.price-hero .price').textContent =
+    predictedPrice.toLocaleString('ru-RU') + ' ₽';
+  document.querySelector('.price-hero .ppm2').textContent =
+    ppm2Used.toLocaleString('ru-RU') + ' ₽/м² · ' + area + ' м² · ' + rooms + '-комн.' +
+    (isEdgeFloor ? ' · −3% (этаж)' : '');
+  document.querySelector('.compare-title').textContent =
+    'Сравнение с рынком микрорайона (' + rooms + '-комн.)';
+
+  document.getElementById('idleState').style.display = 'none';
+  const rs = document.getElementById('resultsSection');
+  rs.classList.add('visible');
+
+  rs.style.opacity = '0';
+  rs.style.transform = 'translateY(16px)';
+  rs.style.transition = 'all .3s ease';
+  setTimeout(() => {
+    rs.style.opacity = '1';
+    rs.style.transform = 'translateY(0)';
+  }, 50);
+
+  renderEstimateChart(ppm2Used);
+}
+
+// ── Chart ──
+let estimateChart = null;
+function renderEstimateChart(userPpm2 = 191000) {
+  const ctx = document.getElementById('estimateChart').getContext('2d');
+  if (estimateChart) estimateChart.destroy();
+
+  const labels = [];
+  const base = new Date('2026-01-13');
+  for (let i = 0; i < 13; i++) {
+    const d = new Date(base);
+    d.setDate(d.getDate() + i * 7);
+    labels.push(d.toLocaleDateString('ru', { day:'numeric', month:'short' }));
+  }
+  const data = [183000, 185500, 184000, 188000, 190000, 189000, 192000, 194500, 196000, 193000, 191000, 192000, 191000];
+
+  estimateChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Медиана ₽/м²',
+          data,
+          borderColor: '#2563EB',
+          backgroundColor: 'rgba(37,99,235,.07)',
+          borderWidth: 2.5,
+          pointRadius: 3,
+          pointBackgroundColor: '#2563EB',
+          fill: true,
+          tension: 0.4,
+        },
+        {
+          label: 'Ваша оценка',
+          data: Array(13).fill(userPpm2),
+          borderColor: '#16A34A',
+          borderWidth: 2,
+          borderDash: [6, 4],
+          pointRadius: 0,
+          fill: false,
+          tension: 0,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { font: { size: 10 }, boxWidth: 12, padding: 10 }
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString('ru') + ' ₽/м²'
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { font: { size: 9 }, maxRotation: 0 }, grid: { display: false } },
+        y: {
+          ticks: { font: { size: 9 }, callback: v => (v/1000).toFixed(0) + 'к' },
+          grid: { color: '#F1F5F9' }
+        }
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>

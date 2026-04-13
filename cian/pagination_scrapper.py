@@ -20,9 +20,9 @@ MAX_PAGES = 54
 
 # Задержки между запросами (секунды)
 PAGE_DELAY_MIN = 2.0
-PAGE_DELAY_MAX = 5.0
-CHUNK_DELAY_MIN = 5.0
-CHUNK_DELAY_MAX = 10.0
+PAGE_DELAY_MAX = 3.0
+CHUNK_DELAY_MIN = 3.0
+CHUNK_DELAY_MAX = 5.0
 
 # Retry-параметры
 MAX_RETRIES = 3
