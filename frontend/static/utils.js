@@ -59,9 +59,12 @@ const PRICE_MAX = 400_000;
  * Возвращает hex-цвет (#rrggbb) по медианной цене/м²
  * Градиент: зелёный (дёшево) → жёлтый → красный (дорого)
  * @param {number} pricePerM2
+ * @param {number} [min] - нижняя граница диапазона (по умолчанию PRICE_MIN)
+ * @param {number} [max] - верхняя граница диапазона (по умолчанию PRICE_MAX)
  */
-export function priceToColor(pricePerM2) {
-  const t = Math.max(0, Math.min(1, (pricePerM2 - PRICE_MIN) / (PRICE_MAX - PRICE_MIN)));
+export function priceToColor(pricePerM2, min = PRICE_MIN, max = PRICE_MAX) {
+  const range = max - min || 1;
+  const t = Math.max(0, Math.min(1, (pricePerM2 - min) / range));
   let r, g, b;
   if (t < 0.5) {
     // зелёный (#4ADE80) → жёлтый (#FACC15)

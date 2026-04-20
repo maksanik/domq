@@ -6,8 +6,6 @@
   <title>DomQ — Поиск квартир</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
-  <script type="module" src="api.js"></script>
-  <script type="module" src="utils.js"></script>
   <style>
     :root {
       --primary: #2563EB;
@@ -74,6 +72,7 @@
       white-space: nowrap;
     }
     .map-pick-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .map-pick-btn.active { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
 
     /* ── Sort / Results header ── */
     .results-header { padding: 1rem 1.5rem 0.5rem; display: flex; align-items: center; justify-content: space-between; }
@@ -119,14 +118,14 @@
     .card-ppm2 { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
     .card-discount { font-size: 0.78rem; color: var(--hot); font-weight: 600; margin-top: 3px; }
 
-    /* ── Pagination ── */
-    .pagination-bar { display: flex; justify-content: center; padding: 1rem 1.5rem 2rem; gap: 6px; }
-    .page-btn {
-      width: 36px; height: 36px; border-radius: 8px; border: 1.5px solid var(--border);
-      background: #fff; font-size: 0.875rem; font-weight: 500; color: var(--muted);
-      cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s;
+    /* ── Load more ── */
+    .load-more-wrap { display: flex; justify-content: center; padding: 0.5rem 1.5rem 2rem; }
+    .load-more-btn {
+      height: 40px; padding: 0 28px; border: 1.5px solid var(--border); border-radius: 10px;
+      background: #fff; font-size: 0.875rem; font-weight: 600; color: var(--muted);
+      cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all .15s;
     }
-    .page-btn:hover, .page-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .load-more-btn:hover { border-color: var(--primary); color: var(--primary); }
 
     /* ── Modal ── */
     .modal-content { border-radius: 16px; border: none; box-shadow: 0 25px 60px rgba(0,0,0,.18); }
@@ -159,6 +158,17 @@
       cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all .15s;
     }
     .btn-outline-custom:hover { background: var(--primary-light); }
+
+    /* ── Toast ── */
+    .domq-toast-wrap { position: fixed; bottom: 24px; right: 24px; z-index: 99999; display: flex; flex-direction: column; gap: 8px; }
+    .domq-toast {
+      background: #1e293b; color: #fff; padding: 12px 18px; border-radius: 10px;
+      font-size: 0.875rem; font-weight: 500; box-shadow: 0 4px 20px rgba(0,0,0,.25);
+      animation: toastIn .25s ease; max-width: 320px;
+    }
+    .domq-toast.error { background: #dc2626; }
+    .domq-toast.warn  { background: #d97706; }
+    @keyframes toastIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
   </style>
 </head>
 <body>
@@ -173,7 +183,7 @@
       <a class="nav-link" href="estimate.html"><i class="bi bi-calculator me-1"></i>Оценить квартиру</a>
     </div>
   </div>
-  <div class="last-update"><i class="bi bi-clock me-1"></i>Обновлено: 13.04.2026, 08:45</div>
+  <div class="last-update"><i class="bi bi-clock me-1"></i>DomQ</div>
 </nav>
 
 <!-- ── Filters ── -->
@@ -183,13 +193,13 @@
     <!-- Rooms -->
     <div>
       <div class="filter-label">Комнатность</div>
-      <div class="room-chips">
-        <div class="room-chip">1</div>
-        <div class="room-chip active">2</div>
-        <div class="room-chip active">3</div>
-        <div class="room-chip">4</div>
-        <div class="room-chip">5</div>
-        <div class="room-chip">6</div>
+      <div class="room-chips" id="roomChips">
+        <div class="room-chip" data-rooms="1">1</div>
+        <div class="room-chip" data-rooms="2">2</div>
+        <div class="room-chip" data-rooms="3">3</div>
+        <div class="room-chip" data-rooms="4">4</div>
+        <div class="room-chip" data-rooms="5">5</div>
+        <div class="room-chip" data-rooms="6">6</div>
       </div>
     </div>
 
@@ -197,9 +207,9 @@
     <div>
       <div class="filter-label">Цена, руб.</div>
       <div class="range-inputs">
-        <input class="range-input" type="text" placeholder="от 3 000 000" value="5 000 000" />
+        <input class="range-input" id="minPrice" type="text" placeholder="от 3 000 000" />
         <span class="range-sep">—</span>
-        <input class="range-input" type="text" placeholder="до 30 000 000" value="15 000 000" />
+        <input class="range-input" id="maxPrice" type="text" placeholder="до 30 000 000" />
       </div>
     </div>
 
@@ -207,9 +217,9 @@
     <div>
       <div class="filter-label">Площадь, м²</div>
       <div class="range-inputs">
-        <input class="range-input" type="text" placeholder="от 20" style="width:100px" />
+        <input class="range-input" id="minArea" type="text" placeholder="от 20" style="width:100px" />
         <span class="range-sep">—</span>
-        <input class="range-input" type="text" placeholder="до 200" style="width:100px" />
+        <input class="range-input" id="maxArea" type="text" placeholder="до 200" style="width:100px" />
       </div>
     </div>
 
@@ -217,7 +227,7 @@
     <div>
       <div class="filter-label">Горячие сделки</div>
       <label class="hot-toggle">
-        <input class="form-check-input" type="checkbox" role="switch" style="width:42px;height:22px;cursor:pointer" />
+        <input class="form-check-input" id="hotDealsToggle" type="checkbox" role="switch" style="width:42px;height:22px;cursor:pointer" />
         <span style="font-size:.85rem;font-weight:600;color:var(--hot)"><i class="bi bi-fire"></i> Только выгодные</span>
       </label>
     </div>
@@ -225,8 +235,8 @@
     <!-- District picker -->
     <div>
       <div class="filter-label">Район</div>
-      <button class="map-pick-btn" onclick="document.getElementById('mapPickModal').style.display='flex'">
-        <i class="bi bi-hexagon"></i> Выбрать на карте
+      <button class="map-pick-btn" id="mapPickBtn">
+        <i class="bi bi-hexagon"></i> <span id="mapPickLabel">Выбрать на карте</span>
       </button>
     </div>
 
@@ -235,270 +245,338 @@
 
 <!-- ── Results header ── -->
 <div class="results-header">
-  <div class="results-count">Найдено <strong>1 247</strong> объявлений</div>
+  <div class="results-count" id="resultsCount">Загрузка...</div>
   <div class="d-flex align-items-center gap-3">
     <span style="font-size:.85rem;color:var(--muted)">Сортировка:</span>
-    <select class="sort-select">
-      <option>По скидке от рынка ↓</option>
-      <option>По цене ↑</option>
-      <option>По цене ↓</option>
-      <option>По цене/м² ↑</option>
-      <option>По цене/м² ↓</option>
+    <select class="sort-select" id="sortSelect">
+      <option value="discount">По скидке от рынка ↓</option>
+      <option value="price_asc">По цене ↑</option>
+      <option value="price_desc">По цене ↓</option>
+      <option value="ppm2_asc">По цене/м² ↑</option>
+      <option value="ppm2_desc">По цене/м² ↓</option>
     </select>
   </div>
 </div>
 
 <!-- ── Cards ── -->
-<div class="cards-grid" id="cardsGrid">
-  <!-- hot deal -->
-  <div class="listing-card hot" onclick="showModal()">
-    <div class="card-photo">
-      <i class="bi bi-building photo-icon"></i>
-      <span class="hot-badge"><i class="bi bi-fire"></i> −14% от рынка</span>
-      <span class="rooms-badge">2-комн.</span>
-    </div>
-    <div class="card-body">
-      <div class="card-address"><i class="bi bi-geo-alt"></i> ул. Арбат, 22, Москва</div>
-      <div class="card-title">9 200 000 ₽</div>
-      <div class="card-meta">
-        <span><i class="bi bi-aspect-ratio"></i> 56 м²</span>
-        <span><i class="bi bi-layers"></i> 4 / 9 эт.</span>
-      </div>
-      <div class="card-ppm2">164 285 ₽/м²</div>
-      <div class="card-discount"><i class="bi bi-fire"></i> На 14% ниже медианы района</div>
-    </div>
-  </div>
+<div class="cards-grid" id="cardsGrid"></div>
 
-  <!-- hot deal -->
-  <div class="listing-card hot" onclick="showModal()">
-    <div class="card-photo" style="background: linear-gradient(135deg, #FEE2E2, #FECACA)">
-      <i class="bi bi-building photo-icon"></i>
-      <span class="hot-badge"><i class="bi bi-fire"></i> −11% от рынка</span>
-      <span class="rooms-badge">3-комн.</span>
-    </div>
-    <div class="card-body">
-      <div class="card-address"><i class="bi bi-geo-alt"></i> Ленинский пр-т, 45</div>
-      <div class="card-title">11 500 000 ₽</div>
-      <div class="card-meta">
-        <span><i class="bi bi-aspect-ratio"></i> 78 м²</span>
-        <span><i class="bi bi-layers"></i> 7 / 12 эт.</span>
-      </div>
-      <div class="card-ppm2">147 435 ₽/м²</div>
-      <div class="card-discount"><i class="bi bi-fire"></i> На 11% ниже медианы района</div>
-    </div>
-  </div>
-
-  <!-- normal -->
-  <div class="listing-card" onclick="showModal()">
-    <div class="card-photo" style="background: linear-gradient(135deg, #E0F2FE, #BAE6FD)">
-      <i class="bi bi-building photo-icon"></i>
-      <span class="rooms-badge">2-комн.</span>
-    </div>
-    <div class="card-body">
-      <div class="card-address"><i class="bi bi-geo-alt"></i> Тверская ул., 8</div>
-      <div class="card-title">12 800 000 ₽</div>
-      <div class="card-meta">
-        <span><i class="bi bi-aspect-ratio"></i> 63 м²</span>
-        <span><i class="bi bi-layers"></i> 5 / 10 эт.</span>
-      </div>
-      <div class="card-ppm2">203 174 ₽/м²</div>
-    </div>
-  </div>
-
-  <!-- normal -->
-  <div class="listing-card" onclick="showModal()">
-    <div class="card-photo" style="background: linear-gradient(135deg, #F0FDF4, #BBF7D0)">
-      <i class="bi bi-building photo-icon"></i>
-      <span class="rooms-badge">2-комн.</span>
-    </div>
-    <div class="card-body">
-      <div class="card-address"><i class="bi bi-geo-alt"></i> Б. Якиманка, 15</div>
-      <div class="card-title">10 300 000 ₽</div>
-      <div class="card-meta">
-        <span><i class="bi bi-aspect-ratio"></i> 58 м²</span>
-        <span><i class="bi bi-layers"></i> 2 / 8 эт.</span>
-      </div>
-      <div class="card-ppm2">177 586 ₽/м²</div>
-    </div>
-  </div>
-
-  <!-- hot deal -->
-  <div class="listing-card hot" onclick="showModal()">
-    <div class="card-photo" style="background: linear-gradient(135deg, #FFF7ED, #FED7AA)">
-      <i class="bi bi-building photo-icon"></i>
-      <span class="hot-badge"><i class="bi bi-fire"></i> −18% от рынка</span>
-      <span class="rooms-badge">3-комн.</span>
-    </div>
-    <div class="card-body">
-      <div class="card-address"><i class="bi bi-geo-alt"></i> Чистопрудный б-р, 3</div>
-      <div class="card-title">13 100 000 ₽</div>
-      <div class="card-meta">
-        <span><i class="bi bi-aspect-ratio"></i> 82 м²</span>
-        <span><i class="bi bi-layers"></i> 3 / 7 эт.</span>
-      </div>
-      <div class="card-ppm2">159 756 ₽/м²</div>
-      <div class="card-discount"><i class="bi bi-fire"></i> На 18% ниже медианы района</div>
-    </div>
-  </div>
-
-  <div class="listing-card" onclick="showModal()">
-    <div class="card-photo" style="background: linear-gradient(135deg, #F5F3FF, #DDD6FE)">
-      <i class="bi bi-building photo-icon"></i>
-      <span class="rooms-badge">3-комн.</span>
-    </div>
-    <div class="card-body">
-      <div class="card-address"><i class="bi bi-geo-alt"></i> Садовая-Кудринская, 7</div>
-      <div class="card-title">16 700 000 ₽</div>
-      <div class="card-meta">
-        <span><i class="bi bi-aspect-ratio"></i> 91 м²</span>
-        <span><i class="bi bi-layers"></i> 6 / 14 эт.</span>
-      </div>
-      <div class="card-ppm2">183 516 ₽/м²</div>
-    </div>
-  </div>
-
-  <div class="listing-card" onclick="showModal()">
-    <div class="card-photo" style="background: linear-gradient(135deg, #ECFDF5, #A7F3D0)">
-      <i class="bi bi-building photo-icon"></i>
-      <span class="rooms-badge">2-комн.</span>
-    </div>
-    <div class="card-body">
-      <div class="card-address"><i class="bi bi-geo-alt"></i> Остоженка, 33</div>
-      <div class="card-title">14 200 000 ₽</div>
-      <div class="card-meta">
-        <span><i class="bi bi-aspect-ratio"></i> 71 м²</span>
-        <span><i class="bi bi-layers"></i> 8 / 12 эт.</span>
-      </div>
-      <div class="card-ppm2">200 000 ₽/м²</div>
-    </div>
-  </div>
-
-  <div class="listing-card hot" onclick="showModal()">
-    <div class="card-photo" style="background: linear-gradient(135deg, #FEF2F2, #FECACA)">
-      <i class="bi bi-building photo-icon"></i>
-      <span class="hot-badge"><i class="bi bi-fire"></i> −12% от рынка</span>
-      <span class="rooms-badge">2-комн.</span>
-    </div>
-    <div class="card-body">
-      <div class="card-address"><i class="bi bi-geo-alt"></i> Новокузнецкая ул., 11</div>
-      <div class="card-title">8 900 000 ₽</div>
-      <div class="card-meta">
-        <span><i class="bi bi-aspect-ratio"></i> 54 м²</span>
-        <span><i class="bi bi-layers"></i> 5 / 9 эт.</span>
-      </div>
-      <div class="card-ppm2">164 814 ₽/м²</div>
-      <div class="card-discount"><i class="bi bi-fire"></i> На 12% ниже медианы района</div>
-    </div>
-  </div>
-</div>
-
-<!-- ── Pagination ── -->
-<div class="pagination-bar">
-  <button class="page-btn"><i class="bi bi-chevron-left"></i></button>
-  <button class="page-btn active">1</button>
-  <button class="page-btn">2</button>
-  <button class="page-btn">3</button>
-  <span style="line-height:36px;color:var(--muted)">…</span>
-  <button class="page-btn">52</button>
-  <button class="page-btn"><i class="bi bi-chevron-right"></i></button>
+<!-- ── Load more ── -->
+<div class="load-more-wrap">
+  <button class="load-more-btn" id="loadMoreBtn" style="display:none">
+    <i class="bi bi-arrow-down-circle"></i> Загрузить ещё
+  </button>
 </div>
 
 <!-- ── Detail Modal ── -->
 <div id="detailModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;align-items:center;justify-content:center;padding:1rem">
   <div style="background:#fff;border-radius:16px;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;box-shadow:0 25px 60px rgba(0,0,0,.2)">
-    <div style="padding:1.25rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+    <div id="modalHeader" style="padding:1.25rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
       <div>
-        <div style="font-size:.8rem;color:var(--muted)">ID: 12348822 · Cian.ru</div>
-        <div style="font-weight:800;font-size:1.1rem;margin-top:2px">2-комн. квартира, 56 м²</div>
+        <div id="modalMeta" style="font-size:.8rem;color:var(--muted)"></div>
+        <div id="modalTitle" style="font-weight:800;font-size:1.1rem;margin-top:2px"></div>
       </div>
       <button onclick="document.getElementById('detailModal').style.display='none'" style="background:none;border:none;font-size:1.4rem;color:var(--muted);cursor:pointer;line-height:1">&times;</button>
     </div>
-    <div style="padding:1.5rem">
-      <div class="detail-photo">
-        <i class="bi bi-image" style="font-size:3rem;color:#CBD5E1"></i>
-      </div>
-
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-        <span style="font-size:1.6rem;font-weight:900;color:var(--text)">9 200 000 ₽</span>
-        <span style="background:var(--hot-light);color:var(--hot);font-weight:700;font-size:.82rem;padding:4px 10px;border-radius:20px"><i class="bi bi-fire"></i> −14% от рынка</span>
-      </div>
-
-      <div class="stat-row">
-        <div class="stat-box">
-          <div class="label">Площадь</div>
-          <div class="value">56 м²</div>
-        </div>
-        <div class="stat-box">
-          <div class="label">Цена / м²</div>
-          <div class="value">164 285 ₽</div>
-        </div>
-        <div class="stat-box">
-          <div class="label">Этаж</div>
-          <div class="value">4 из 9</div>
-        </div>
-        <div class="stat-box">
-          <div class="label">Комнатность</div>
-          <div class="value">2-комнатная</div>
-        </div>
-      </div>
-
-      <div style="font-size:.85rem;color:var(--muted);margin-bottom:14px;display:flex;align-items:flex-start;gap:6px">
-        <i class="bi bi-geo-alt-fill" style="color:var(--primary);margin-top:2px"></i>
-        ул. Арбат, 22, Москва — Арбат
-      </div>
-
-      <div class="compare-bar">
-        <div class="label">Сравнение с медианой микрорайона (2-комн.)</div>
-        <div class="track"><div class="fill" style="width:86%"></div></div>
-        <div class="caption"><i class="bi bi-arrow-down-circle-fill"></i> На 14% ниже среднего — выгодная покупка</div>
-      </div>
-
-      <div style="background:var(--surface);border-radius:10px;padding:14px 16px;margin-bottom:1rem;font-size:.85rem;color:var(--muted)">
-        <i class="bi bi-calendar3 me-1"></i> На площадке с <strong style="color:var(--text)">15 января 2026</strong> · Последнее изменение: <strong style="color:var(--text)">8 апреля 2026</strong>
-      </div>
-
-      <div class="modal-actions">
-        <a href="https://cian.ru" target="_blank" class="btn-primary-custom" style="text-decoration:none">
-          <i class="bi bi-box-arrow-up-right"></i> Открыть на Cian
-        </a>
-        <a href="map.html" class="btn-outline-custom" style="text-decoration:none">
-          <i class="bi bi-map"></i> Показать на карте
-        </a>
-      </div>
-    </div>
+    <div id="modalBody" style="padding:1.5rem"></div>
   </div>
 </div>
 
-<!-- ── Map Pick Modal (stub) ── -->
-<div id="mapPickModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;padding:1rem">
-  <div style="background:#fff;border-radius:16px;width:100%;max-width:600px;box-shadow:0 25px 60px rgba(0,0,0,.2)">
-    <div style="padding:1.25rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-      <div style="font-weight:800">Выбор района на карте</div>
-      <button onclick="document.getElementById('mapPickModal').style.display='none'" style="background:none;border:none;font-size:1.4rem;color:var(--muted);cursor:pointer">&times;</button>
-    </div>
-    <div style="padding:1.5rem">
-      <div style="height:300px;background:linear-gradient(135deg,#E0F2FE,#BAE6FD);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px">
-        <i class="bi bi-hexagon" style="font-size:3rem;color:#93C5FD"></i>
-        <div style="color:#60A5FA;font-weight:600">Кликните по гексагону, чтобы выбрать район</div>
-        <div style="font-size:.8rem;color:#93C5FD">H3 Resolution 9 · ~174 м</div>
-      </div>
-      <div style="margin-top:14px;font-size:.82rem;color:var(--muted)">Выбранный район: <strong style="color:var(--primary)">не выбран</strong></div>
-      <div style="margin-top:12px;display:flex;gap:10px">
-        <button class="btn-primary-custom" style="flex:1" onclick="document.getElementById('mapPickModal').style.display='none'">Применить</button>
-        <button class="btn-outline-custom" style="flex:1" onclick="document.getElementById('mapPickModal').style.display='none'">Отмена</button>
-      </div>
-    </div>
-  </div>
-</div>
+<!-- ── Toast container ── -->
+<div class="domq-toast-wrap" id="toastWrap"></div>
 
-<script>
-  function showModal() {
-    document.getElementById('detailModal').style.display = 'flex';
-  }
-  // Room chips toggle
-  document.querySelectorAll('.room-chip').forEach(chip => {
-    chip.addEventListener('click', () => chip.classList.toggle('active'));
+<script type="module">
+import { getListings, getListing } from './api.js';
+import { fmtRub, fmtPpm2, fmtArea, fmtDate, getParam, showToast } from './utils.js';
+
+// ── State ──
+const state = {
+  rooms: null,
+  minPrice: null,
+  maxPrice: null,
+  minArea: null,
+  maxArea: null,
+  isHotDeal: null,
+  h3_index: null,
+  offset: 0,
+  total: 0,
+  sortBy: 'discount_percent',
+  sortOrder: 'desc',
+  items: [],
+};
+
+// ── Helpers ──
+function parseNum(str) {
+  if (!str) return null;
+  const n = parseFloat(str.replace(/\s/g, '').replace(',', '.'));
+  return isNaN(n) ? null : n;
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+function sortItems(items) {
+  const key = state.sortBy;
+  const dir = state.sortOrder === 'asc' ? 1 : -1;
+  return [...items].sort((a, b) => {
+    const av = a[key] ?? (dir === 1 ? Infinity : -Infinity);
+    const bv = b[key] ?? (dir === 1 ? Infinity : -Infinity);
+    return (av - bv) * dir;
   });
+}
+
+// ── Card HTML ──
+function buildCardHTML(item) {
+  const isHot = item.is_hot_deal;
+  const disc = item.discount_percent ? Math.round(item.discount_percent) : 0;
+  const hotBadge = isHot && disc
+    ? `<span class="hot-badge"><i class="bi bi-fire"></i> −${disc}% от рынка</span>` : '';
+  const roomsBadge = item.rooms
+    ? `<span class="rooms-badge">${item.rooms}-комн.</span>` : '';
+  const discountLine = isHot && disc
+    ? `<div class="card-discount"><i class="bi bi-fire"></i> На ${disc}% ниже медианы района</div>` : '';
+  return `
+    <div class="listing-card${isHot ? ' hot' : ''}" data-id="${item.id}">
+      <div class="card-photo">
+        <i class="bi bi-building photo-icon"></i>
+        ${hotBadge}${roomsBadge}
+      </div>
+      <div class="card-body">
+        <div class="card-address"><i class="bi bi-geo-alt"></i> ${item.address ?? '—'}</div>
+        <div class="card-title">${fmtRub(item.price)}</div>
+        <div class="card-meta">
+          <span><i class="bi bi-aspect-ratio"></i> ${fmtArea(item.area_total)}</span>
+          <span><i class="bi bi-layers"></i> ${item.floor ?? '?'} / ${item.floors_total ?? '?'} эт.</span>
+        </div>
+        <div class="card-ppm2">${fmtPpm2(item.price_per_m2)}</div>
+        ${discountLine}
+      </div>
+    </div>`;
+}
+
+// ── Render cards ──
+function renderCards(items) {
+  const grid = document.getElementById('cardsGrid');
+  if (items.length === 0) {
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:3rem;color:var(--muted)"><i class="bi bi-search" style="font-size:2rem;display:block;margin-bottom:12px"></i>Объявлений не найдено</div>';
+    return;
+  }
+  grid.innerHTML = items.map(buildCardHTML).join('');
+  grid.querySelectorAll('.listing-card').forEach(card => {
+    card.addEventListener('click', () => openModal(parseInt(card.dataset.id)));
+  });
+}
+
+function showLoading() {
+  const grid = document.getElementById('cardsGrid');
+  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:3rem"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Загрузка...</span></div></div>';
+}
+
+function updateResultsCount() {
+  const el = document.getElementById('resultsCount');
+  el.innerHTML = `Найдено <strong>${state.total.toLocaleString('ru')}</strong> объявлений`;
+}
+
+function updateLoadMoreBtn() {
+  const btn = document.getElementById('loadMoreBtn');
+  btn.style.display = state.offset < state.total ? 'flex' : 'none';
+}
+
+// ── Fetch ──
+async function fetchAndRender(reset = true) {
+  if (reset) { state.offset = 0; state.items = []; showLoading(); }
+
+  const filters = {
+    limit: 20,
+    offset: state.offset,
+    is_active: true,
+  };
+  if (state.rooms != null)    filters.rooms = state.rooms;
+  if (state.minPrice != null) filters.min_price = state.minPrice;
+  if (state.maxPrice != null) filters.max_price = state.maxPrice;
+  if (state.minArea != null)  filters.min_area = state.minArea;
+  if (state.maxArea != null)  filters.max_area = state.maxArea;
+  if (state.isHotDeal)        filters.is_hot_deal = true;
+  if (state.h3_index)         filters.h3_index = state.h3_index;
+
+  try {
+    const result = await getListings(filters);
+    state.total = result.total;
+    state.items = reset ? result.items : [...state.items, ...result.items];
+    state.offset += result.items.length;
+    renderCards(sortItems(state.items));
+    updateResultsCount();
+    updateLoadMoreBtn();
+  } catch (e) {
+    showToast('Ошибка загрузки: ' + e.message, 'error');
+    document.getElementById('cardsGrid').innerHTML =
+      '<div style="grid-column:1/-1;text-align:center;padding:3rem;color:var(--muted)">Не удалось загрузить объявления</div>';
+    document.getElementById('resultsCount').textContent = '';
+  }
+}
+
+// ── Modal ──
+async function openModal(id) {
+  const modal = document.getElementById('detailModal');
+  modal.style.display = 'flex';
+  document.getElementById('modalMeta').textContent = `ID: ${id} · Cian.ru`;
+  document.getElementById('modalTitle').textContent = 'Загрузка...';
+  document.getElementById('modalBody').innerHTML =
+    '<div style="text-align:center;padding:2rem"><div class="domq-spinner"></div></div>';
+
+  try {
+    const item = await getListing(id);
+    renderModal(item);
+  } catch (e) {
+    showToast('Не удалось загрузить объявление', 'error');
+    modal.style.display = 'none';
+  }
+}
+
+function renderModal(item) {
+  const isHot = item.is_hot_deal;
+  const disc = item.discount_percent ? Math.round(item.discount_percent) : 0;
+
+  document.getElementById('modalMeta').innerHTML =
+    `ID: ${item.external_id ?? item.id} · Cian.ru`;
+  document.getElementById('modalTitle').textContent =
+    `${item.rooms ?? '?'}-комн. квартира, ${fmtArea(item.area_total)}`;
+
+  const hotBadge = isHot && disc
+    ? `<span style="background:var(--hot-light);color:var(--hot);font-weight:700;font-size:.82rem;padding:4px 10px;border-radius:20px"><i class="bi bi-fire"></i> −${disc}% от рынка</span>`
+    : '';
+
+  const pct = isHot && disc ? Math.round(100 - disc) : 50;
+  const compareBar = isHot && disc ? `
+    <div class="compare-bar">
+      <div class="label">Сравнение с медианой микрорайона (${item.rooms ?? '?'}-комн.)</div>
+      <div class="track"><div class="fill" style="width:${pct}%"></div></div>
+      <div class="caption"><i class="bi bi-arrow-down-circle-fill"></i> На ${disc}% ниже среднего — выгодная покупка</div>
+    </div>` : '';
+
+  const cianUrl = item.url ?? `https://cian.ru/sale/flat/${item.external_id}/`;
+  const mapUrl = item.h3_index ? `map.html` : 'map.html';
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="detail-photo">
+      <i class="bi bi-image" style="font-size:3rem;color:#CBD5E1"></i>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <span style="font-size:1.6rem;font-weight:900;color:var(--text)">${fmtRub(item.price)}</span>
+      ${hotBadge}
+    </div>
+    <div class="stat-row">
+      <div class="stat-box"><div class="label">Площадь</div><div class="value">${fmtArea(item.area_total)}</div></div>
+      <div class="stat-box"><div class="label">Цена / м²</div><div class="value">${fmtPpm2(item.price_per_m2)}</div></div>
+      <div class="stat-box"><div class="label">Этаж</div><div class="value">${item.floor ?? '?'} из ${item.floors_total ?? '?'}</div></div>
+      <div class="stat-box"><div class="label">Комнатность</div><div class="value">${item.rooms ?? '?'}-комнатная</div></div>
+    </div>
+    <div style="font-size:.85rem;color:var(--muted);margin-bottom:14px;display:flex;align-items:flex-start;gap:6px">
+      <i class="bi bi-geo-alt-fill" style="color:var(--primary);margin-top:2px"></i>
+      ${item.address ?? '—'}
+    </div>
+    ${compareBar}
+    <div style="background:var(--surface);border-radius:10px;padding:14px 16px;margin-bottom:1rem;font-size:.85rem;color:var(--muted)">
+      <i class="bi bi-calendar3 me-1"></i>
+      На площадке с <strong style="color:var(--text)">${fmtDate(item.first_seen_at)}</strong>
+      · Последнее изменение: <strong style="color:var(--text)">${fmtDate(item.last_seen_at)}</strong>
+    </div>
+    <div class="modal-actions">
+      <a href="${cianUrl}" target="_blank" class="btn-primary-custom" style="text-decoration:none">
+        <i class="bi bi-box-arrow-up-right"></i> Открыть на Cian
+      </a>
+      <a href="${mapUrl}" class="btn-outline-custom" style="text-decoration:none">
+        <i class="bi bi-map"></i> Показать на карте
+      </a>
+    </div>`;
+}
+
+// ── Wire up filters ──
+
+// Room chips — single select, toggle
+document.querySelectorAll('#roomChips .room-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const val = parseInt(chip.dataset.rooms);
+    if (state.rooms === val) {
+      state.rooms = null;
+      chip.classList.remove('active');
+    } else {
+      document.querySelectorAll('#roomChips .room-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      state.rooms = val;
+    }
+    fetchAndRender(true);
+  });
+});
+
+// Price/area inputs — debounced
+const debouncedFetch = debounce(() => fetchAndRender(true), 500);
+document.getElementById('minPrice').addEventListener('input', e => {
+  state.minPrice = parseNum(e.target.value);
+  debouncedFetch();
+});
+document.getElementById('maxPrice').addEventListener('input', e => {
+  state.maxPrice = parseNum(e.target.value);
+  debouncedFetch();
+});
+document.getElementById('minArea').addEventListener('input', e => {
+  state.minArea = parseNum(e.target.value);
+  debouncedFetch();
+});
+document.getElementById('maxArea').addEventListener('input', e => {
+  state.maxArea = parseNum(e.target.value);
+  debouncedFetch();
+});
+
+// Hot deals toggle
+document.getElementById('hotDealsToggle').addEventListener('change', e => {
+  state.isHotDeal = e.target.checked || null;
+  fetchAndRender(true);
+});
+
+// Sort select
+document.getElementById('sortSelect').addEventListener('change', e => {
+  const map = {
+    'discount':   ['discount_percent', 'desc'],
+    'price_asc':  ['price', 'asc'],
+    'price_desc': ['price', 'desc'],
+    'ppm2_asc':   ['price_per_m2', 'asc'],
+    'ppm2_desc':  ['price_per_m2', 'desc'],
+  };
+  [state.sortBy, state.sortOrder] = map[e.target.value] ?? ['discount_percent', 'desc'];
+  renderCards(sortItems(state.items));
+});
+
+// Load more
+document.getElementById('loadMoreBtn').addEventListener('click', () => fetchAndRender(false));
+
+// Close modal on backdrop click
+document.getElementById('detailModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('detailModal'))
+    document.getElementById('detailModal').style.display = 'none';
+});
+
+// Map pick button — clear h3 filter
+document.getElementById('mapPickBtn').addEventListener('click', () => {
+  if (state.h3_index) {
+    state.h3_index = null;
+    document.getElementById('mapPickLabel').textContent = 'Выбрать на карте';
+    document.getElementById('mapPickBtn').classList.remove('active');
+    fetchAndRender(true);
+  }
+});
+
+// ── Init: read h3 from URL ──
+const h3FromUrl = getParam('h3');
+if (h3FromUrl) {
+  state.h3_index = h3FromUrl;
+  document.getElementById('mapPickLabel').textContent = h3FromUrl.slice(0, 10) + '…';
+  document.getElementById('mapPickBtn').classList.add('active');
+}
+
+fetchAndRender(true);
 </script>
 </body>
 </html>

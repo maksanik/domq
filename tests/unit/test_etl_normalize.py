@@ -62,8 +62,10 @@ async def test_building_calls_db_and_returns_id(conn):
     }
     result = await get_or_create_building(conn, raw)
     assert result == 42
-    # Two upsert_h3_cell calls (r9 + r11) → two conn.execute calls
-    assert conn.execute.call_count == 2
+    # upsert_h3_cells sends both cells via a single executemany call
+    conn.executemany.assert_called_once()
+    cells_arg = conn.executemany.call_args.args[1]
+    assert len(cells_arg) == 2
     conn.fetchrow.assert_called_once()
 
 

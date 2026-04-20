@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 class H3StatItem(BaseModel):
     h3_index: str
-    rooms: int
+    rooms: Optional[int]
     median_price_per_m2: Optional[float]
     avg_price_per_m2: Optional[float]
     listings_count: int
@@ -33,6 +33,6 @@ class H3DetailResponse(BaseModel):
 
 class H3MapItem(BaseModel):
     h3_index: str
-    rooms: int
+    rooms: Optional[int]
     median_price_per_m2: Optional[float]
     listings_count: int

@@ -71,7 +71,8 @@ class PaginationScraper:
                         "url": offer.get("fullUrl"),
                         "title": offer.get("title"),
                         "description": offer.get("description"),
-                        "price": offer.get("bargainTerms", {}).get("price"),
+                        "price": (offer.get("bargainTerms") or {}).get("priceRur")
+                        or (offer.get("bargainTerms") or {}).get("price"),
                         "area_total": offer.get("totalArea"),
                         "area_kitchen": offer.get("kitchenArea"),
                         "rooms": offer.get("roomsCount"),

@@ -5,6 +5,8 @@ __pycache__/
 .ruff_cache/
 tmp/
 cian_profile/
+.git/
+
 bot.log
 */cian_data.db
 .claude/

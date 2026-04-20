@@ -117,11 +117,14 @@ export function getHealth() {
  * }} H3StatMapItem
  *
  * @typedef {{
- *   h3_index: string, rooms: number,
- *   median_price_per_m2: number, avg_price_per_m2: number,
- *   listings_count: number,
- *   median_days: number|null, avg_days_on_market: number|null,
- *   price_history: { date: string, median_price_per_m2: number }[]
+ *   h3_index: string, rooms: number|null,
+ *   price_stats: {
+ *     h3_index: string, rooms: number,
+ *     median_price_per_m2: number|null, avg_price_per_m2: number|null,
+ *     listings_count: number, calculated_at: string|null
+ *   } | null,
+ *   liquidity: { avg_days_on_market: number|null, median_days: number|null } | null,
+ *   price_history: { date: string, median_price_per_m2: number|null }[]
  * }} H3StatDetail
  *
  * @typedef {{

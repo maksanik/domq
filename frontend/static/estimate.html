@@ -9,8 +9,6 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-  <script type="module" src="api.js"></script>
-  <script type="module" src="utils.js"></script>
   <style>
     :root {
       --primary: #2563EB;
@@ -77,9 +75,10 @@
     .find-btn {
       height: 40px; padding: 0 16px; background: var(--primary); color: #fff;
       border: none; border-radius: 8px; font-weight: 600; font-size: 0.875rem; cursor: pointer;
-      white-space: nowrap; transition: opacity .15s;
+      white-space: nowrap; transition: opacity .15s; display: flex; align-items: center; gap: 6px;
     }
     .find-btn:hover { opacity: .88; }
+    .find-btn:disabled { opacity: .6; cursor: not-allowed; }
 
     .coords-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .coord-wrap { position: relative; }
@@ -108,6 +107,7 @@
       transition: all .2s; margin-top: 8px;
     }
     .calc-btn:hover { background: #1d4ed8; transform: translateY(-1px); box-shadow: 0 4px 20px rgba(37,99,235,.3); }
+    .calc-btn:disabled { opacity: .6; cursor: not-allowed; transform: none; box-shadow: none; }
 
     /* ── Results ── */
     .results-section { display: none; }
@@ -167,7 +167,7 @@
       <a class="nav-link active" href="estimate.html"><i class="bi bi-calculator me-1"></i>Оценить квартиру</a>
     </div>
   </div>
-  <div class="last-update"><i class="bi bi-clock me-1"></i>Обновлено: 13.04.2026, 08:45</div>
+  <div class="last-update"><i class="bi bi-clock me-1"></i>DomQ</div>
 </nav>
 
 <!-- ── Page ── -->
@@ -186,8 +186,8 @@
         <div class="form-group">
           <label class="form-label">Адрес</label>
           <div class="input-with-btn">
-            <input class="form-control" type="text" id="addressInput" placeholder="ул. Арбат, 22, Москва" value="ул. Арбат, 22, Москва" />
-            <button class="find-btn" onclick="geocode()"><i class="bi bi-search"></i> Найти</button>
+            <input class="form-control" type="text" id="addressInput" placeholder="ул. Арбат, 22, Москва" />
+            <button class="find-btn" id="findBtn"><i class="bi bi-search"></i> Найти</button>
           </div>
         </div>
 
@@ -195,11 +195,11 @@
           <div class="coords-row">
             <div class="coord-wrap">
               <i class="bi bi-arrows-vertical"></i>
-              <input class="form-control" type="text" id="latInput" placeholder="Широта" value="55.7520" readonly />
+              <input class="form-control" type="text" id="latInput" placeholder="Широта" readonly />
             </div>
             <div class="coord-wrap">
               <i class="bi bi-arrows"></i>
-              <input class="form-control" type="text" id="lngInput" placeholder="Долгота" value="37.6020" readonly />
+              <input class="form-control" type="text" id="lngInput" placeholder="Долгота" readonly />
             </div>
           </div>
         </div>
@@ -215,32 +215,32 @@
         <div class="form-group">
           <label class="form-label">Комнатность <span class="req">*</span></label>
           <div class="room-chips" id="roomChips">
-            <div class="room-chip">1</div>
-            <div class="room-chip active">2</div>
-            <div class="room-chip">3</div>
-            <div class="room-chip">4</div>
-            <div class="room-chip">5</div>
-            <div class="room-chip">6</div>
+            <div class="room-chip" data-rooms="1">1</div>
+            <div class="room-chip active" data-rooms="2">2</div>
+            <div class="room-chip" data-rooms="3">3</div>
+            <div class="room-chip" data-rooms="4">4</div>
+            <div class="room-chip" data-rooms="5">5</div>
+            <div class="room-chip" data-rooms="6">6</div>
           </div>
         </div>
 
         <div class="form-group">
           <label class="form-label">Общая площадь, м² <span class="req">*</span></label>
-          <input class="form-control" type="number" placeholder="например, 56" value="56" />
+          <input class="form-control" type="number" id="areaInput" placeholder="например, 56" min="1" />
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div class="form-group" style="margin-bottom:0">
             <label class="form-label">Этаж <span class="req">*</span></label>
-            <input class="form-control" type="number" placeholder="4" value="4" />
+            <input class="form-control" type="number" id="floorInput" placeholder="4" min="1" />
           </div>
           <div class="form-group" style="margin-bottom:0">
-            <label class="form-label">Этажей в доме <span class="req">*</span></label>
-            <input class="form-control" type="number" placeholder="9" value="9" />
+            <label class="form-label">Этажей в доме</label>
+            <input class="form-control" type="number" id="floorsInput" placeholder="9" min="1" />
           </div>
         </div>
 
-        <button class="calc-btn" onclick="showResults()">
+        <button class="calc-btn" id="calcBtn">
           <i class="bi bi-lightning-charge-fill"></i> Рассчитать стоимость
         </button>
       </div>
@@ -270,7 +270,7 @@
 
       <!-- Results -->
       <div class="results-section" id="resultsSection">
-        <!-- Warnings (скрыты по умолчанию) -->
+        <!-- Warnings -->
         <div id="warnLowData" class="warn-box" style="display:none">
           <i class="bi bi-exclamation-triangle-fill" style="flex-shrink:0;margin-top:1px"></i>
           <div><strong>Мало данных для этого района</strong> — в H3-соте менее 5 объявлений, прогноз приблизительный.</div>
@@ -283,45 +283,40 @@
         <!-- Price hero -->
         <div class="price-hero">
           <div class="label">Прогнозная рыночная стоимость</div>
-          <div class="price">10 696 000 ₽</div>
-          <div class="ppm2">191 000 ₽/м² · 56 м² · 2-комн.</div>
-          <div class="badge-row">
-            <div class="price-badge"><i class="bi bi-hexagon"></i> Арбат · H3 res.9</div>
-            <div class="price-badge"><i class="bi bi-layers"></i> 4 / 9 эт. · без корр.</div>
-            <div class="price-badge"><i class="bi bi-check-circle"></i> median_h3</div>
-          </div>
+          <div class="price" id="heroPrice">—</div>
+          <div class="ppm2" id="heroPpm2">—</div>
+          <div class="badge-row" id="heroBadges"></div>
         </div>
 
         <!-- Stats -->
         <div class="results-stats">
           <div class="stat-box">
             <div class="stat-label">Цена / м² в расчёте</div>
-            <div class="stat-value" style="color:var(--primary)">191 000 ₽</div>
+            <div class="stat-value" id="statPpm2" style="color:var(--primary)">—</div>
           </div>
           <div class="stat-box">
             <div class="stat-label">Медианный срок продажи</div>
-            <div class="stat-value">38 дней</div>
+            <div class="stat-value" id="statDays">—</div>
           </div>
           <div class="stat-box">
             <div class="stat-label">Аналогов в зоне</div>
-            <div class="stat-value">47 объявл.</div>
+            <div class="stat-value" id="statCount">—</div>
           </div>
         </div>
 
         <!-- Compare -->
         <div class="compare-section">
-          <div class="compare-title">Сравнение с рынком микрорайона (2-комн.)</div>
+          <div class="compare-title" id="compareTitle">Сравнение с рынком микрорайона</div>
           <div class="compare-bar">
-            <div class="compare-labels">
-              <span>Мин. в соте: 145 000 ₽/м²</span>
-              <span>Макс.: 320 000 ₽/м²</span>
+            <div class="compare-labels" id="compareLabels">
+              <span>—</span><span>—</span>
             </div>
             <div class="track">
-              <div class="fill" style="width:53%">
+              <div class="fill" id="compareFill" style="width:50%">
                 <div class="track-marker"></div>
               </div>
             </div>
-            <div class="compare-caption"><i class="bi bi-check-circle-fill me-1"></i>Ваша квартира: 191 000 ₽/м² — близко к медиане (+3%)</div>
+            <div class="compare-caption" id="compareCaption"></div>
           </div>
         </div>
 
@@ -333,10 +328,10 @@
 
         <!-- Actions -->
         <div style="display:flex;gap:10px">
-          <a href="map.html" style="flex:1;height:40px;background:var(--primary);color:#fff;border-radius:8px;font-weight:600;font-size:.875rem;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:6px">
+          <a href="map.html" id="actionMap" style="flex:1;height:40px;background:var(--primary);color:#fff;border-radius:8px;font-weight:600;font-size:.875rem;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:6px">
             <i class="bi bi-map"></i> Смотреть на карте
           </a>
-          <a href="index.html?h3=8911060006bffff" style="flex:1;height:40px;background:#fff;color:var(--primary);border:1.5px solid var(--primary);border-radius:8px;font-weight:600;font-size:.875rem;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:6px">
+          <a href="index.html" id="actionListings" style="flex:1;height:40px;background:#fff;color:var(--primary);border:1.5px solid var(--primary);border-radius:8px;font-weight:600;font-size:.875rem;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:6px">
             <i class="bi bi-search"></i> Аналоги в районе
           </a>
         </div>
@@ -345,24 +340,31 @@
   </div>
 </div>
 
-<script>
+<script type="module">
+import { predictPrice, getH3Stats } from './api.js';
+import { geocodeAddress, fmtRub, fmtPpm2, showToast, startSpinner } from './utils.js';
+
 // ── Mini map ──
-const miniMap = L.map('miniMap', { zoomControl: true, attributionControl: false }).setView([55.752, 37.602], 14);
+const miniMap = L.map('miniMap', { zoomControl: true, attributionControl: false }).setView([55.751, 37.617], 12);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(miniMap);
 
-let marker = L.marker([55.752, 37.602], { draggable: true }).addTo(miniMap);
+let marker = L.marker([55.751, 37.617], { draggable: true }).addTo(miniMap);
+
+function setCoords(lat, lng) {
+  document.getElementById('latInput').value = lat.toFixed(6);
+  document.getElementById('lngInput').value = lng.toFixed(6);
+}
+
 marker.on('dragend', e => {
   const ll = e.target.getLatLng();
-  document.getElementById('latInput').value = ll.lat.toFixed(6);
-  document.getElementById('lngInput').value = ll.lng.toFixed(6);
+  setCoords(ll.lat, ll.lng);
 });
 miniMap.on('click', e => {
   marker.setLatLng(e.latlng);
-  document.getElementById('latInput').value = e.latlng.lat.toFixed(6);
-  document.getElementById('lngInput').value = e.latlng.lng.toFixed(6);
+  setCoords(e.latlng.lat, e.latlng.lng);
 });
 
-// ── Room chips ──
+// ── Room chips — single select ──
 document.querySelectorAll('#roomChips .room-chip').forEach(chip => {
   chip.addEventListener('click', () => {
     document.querySelectorAll('#roomChips .room-chip').forEach(c => c.classList.remove('active'));
@@ -370,56 +372,216 @@ document.querySelectorAll('#roomChips .room-chip').forEach(chip => {
   });
 });
 
-// ── Geocode (stub) ──
-function geocode() {
-  const addr = document.getElementById('addressInput').value;
+// ── Geocode ──
+document.getElementById('findBtn').addEventListener('click', geocode);
+document.getElementById('addressInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') geocode();
+});
+
+async function geocode() {
+  const addr = document.getElementById('addressInput').value.trim();
   if (!addr) return;
-  // Stub: just animate
-  const btn = event.currentTarget;
-  btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
-  setTimeout(() => {
-    btn.innerHTML = '<i class="bi bi-search"></i> Найти';
-    document.getElementById('latInput').value = '55.752041';
-    document.getElementById('lngInput').value = '37.602100';
-    marker.setLatLng([55.752041, 37.602100]);
-    miniMap.setView([55.752041, 37.602100], 15);
-  }, 800);
+  const btn = document.getElementById('findBtn');
+  const restore = startSpinner(btn);
+  try {
+    const result = await geocodeAddress(addr);
+    if (!result) {
+      showToast('Адрес не найден', 'warn');
+      return;
+    }
+    setCoords(result.lat, result.lon);
+    marker.setLatLng([result.lat, result.lon]);
+    miniMap.setView([result.lat, result.lon], 15);
+  } catch (e) {
+    showToast('Ошибка геокодирования: ' + e.message, 'error');
+  } finally {
+    restore();
+  }
 }
 
-// ── Show results ──
-function showResults() {
-  // Считать значения из формы
-  const area = parseFloat(document.querySelector('input[placeholder="например, 56"]').value) || 56;
-  const floor = parseInt(document.querySelectorAll('input[type=number]')[2]?.value) || 4;
-  const floorsTotal = parseInt(document.querySelectorAll('input[type=number]')[3]?.value) || 9;
+// ── Calculate ──
+document.getElementById('calcBtn').addEventListener('click', calculate);
+
+let estimateChart = null;
+
+async function calculate() {
+  const lat = parseFloat(document.getElementById('latInput').value);
+  const lng = parseFloat(document.getElementById('lngInput').value);
+  const area = parseFloat(document.getElementById('areaInput').value);
+  const floor = parseInt(document.getElementById('floorInput').value);
+  const floorsTotal = parseInt(document.getElementById('floorsInput').value) || null;
   const activeRoomEl = document.querySelector('#roomChips .room-chip.active');
-  const rooms = activeRoomEl ? parseInt(activeRoomEl.textContent) : 2;
+  const rooms = activeRoomEl ? parseInt(activeRoomEl.dataset.rooms) : 2;
 
-  // Корректировка на этаж (−3% за 1-й и последний)
-  const isEdgeFloor = floor === 1 || floor === floorsTotal;
-  const MEDIAN_PPM2 = 191000;
-  const floorFactor = isEdgeFloor ? 0.97 : 1.0;
-  const ppm2Used = Math.round(MEDIAN_PPM2 * floorFactor);
-  const predictedPrice = Math.round(ppm2Used * area / 1000) * 1000;
-  const listingsInCell = 47; // mock
+  if (!lat || !lng) {
+    showToast('Укажите местоположение — введите адрес и нажмите «Найти»', 'warn');
+    return;
+  }
+  if (!area || area <= 0) {
+    showToast('Укажите площадь квартиры', 'warn');
+    return;
+  }
+  if (!floor || floor < 1) {
+    showToast('Укажите этаж', 'warn');
+    return;
+  }
 
-  // Предупреждения
-  document.getElementById('warnLowData').style.display = listingsInCell < 5 ? 'flex' : 'none';
-  document.getElementById('warnNoData').style.display = 'none';
+  const btn = document.getElementById('calcBtn');
+  const restore = startSpinner(btn);
 
-  // Обновить hero
-  document.querySelector('.price-hero .price').textContent =
-    predictedPrice.toLocaleString('ru-RU') + ' ₽';
-  document.querySelector('.price-hero .ppm2').textContent =
-    ppm2Used.toLocaleString('ru-RU') + ' ₽/м² · ' + area + ' м² · ' + rooms + '-комн.' +
-    (isEdgeFloor ? ' · −3% (этаж)' : '');
-  document.querySelector('.compare-title').textContent =
-    'Сравнение с рынком микрорайона (' + rooms + '-комн.)';
+  try {
+    const result = await predictPrice({
+      latitude: lat, longitude: lng,
+      area_total: area, rooms, floor,
+      ...(floorsTotal ? { floors_total: floorsTotal } : {}),
+    });
 
+    document.getElementById('warnNoData').style.display = 'none';
+    document.getElementById('warnLowData').style.display = 'none';
+
+    if (result.predicted_price == null) {
+      document.getElementById('warnNoData').style.display = 'flex';
+      showResultsSection();
+      return;
+    }
+
+    if (result.listings_in_cell != null && result.listings_in_cell < 5) {
+      document.getElementById('warnLowData').style.display = 'flex';
+    }
+
+    // Hero
+    document.getElementById('heroPrice').textContent = fmtRub(result.predicted_price);
+    document.getElementById('heroPpm2').textContent =
+      `${fmtPpm2(result.price_per_m2_used)} · ${area} м² · ${rooms}-комн.` +
+      (result.note ? ` · ${result.note}` : '');
+    document.getElementById('heroBadges').innerHTML = `
+      <div class="price-badge"><i class="bi bi-hexagon"></i> ${result.h3_index ?? '—'}</div>
+      <div class="price-badge"><i class="bi bi-layers"></i> ${floor}/${floorsTotal ?? '?'} эт.</div>
+      <div class="price-badge"><i class="bi bi-check-circle"></i> ${result.method ?? 'median_h3'}</div>`;
+
+    // Stats
+    document.getElementById('statPpm2').textContent = fmtPpm2(result.price_per_m2_used);
+    document.getElementById('statCount').textContent =
+      result.listings_in_cell != null ? `${result.listings_in_cell} объявл.` : '—';
+
+    // Action links
+    if (result.h3_index) {
+      document.getElementById('actionListings').href = `index.html?h3=${result.h3_index}`;
+    }
+
+    // H3 detail for chart, liquidity, compare bar
+    if (result.h3_index) {
+      try {
+        const detail = await getH3Stats({ h3_index: result.h3_index, rooms });
+        if (detail.liquidity?.median_days != null) {
+          document.getElementById('statDays').textContent = `${detail.liquidity.median_days} дней`;
+        }
+        renderChart(detail.price_history, result.price_per_m2_used);
+        renderCompareBar(detail, result.price_per_m2_used, rooms);
+      } catch {
+        // h3 detail is optional — show chart-less results
+        renderChart([], result.price_per_m2_used);
+      }
+    }
+
+    showResultsSection();
+  } catch (e) {
+    showToast('Ошибка расчёта: ' + e.message, 'error');
+  } finally {
+    restore();
+  }
+}
+
+function renderChart(history, userPpm2) {
+  const ctx = document.getElementById('estimateChart').getContext('2d');
+  if (estimateChart) estimateChart.destroy();
+
+  // API returns newest-first; reverse for chronological display
+  const sorted = [...history].reverse();
+  const labels = sorted.map(p =>
+    new Date(p.date).toLocaleDateString('ru', { day: 'numeric', month: 'short' })
+  );
+  const medianData = sorted.map(p => p.median_price_per_m2);
+
+  estimateChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels.length ? labels : ['—'],
+      datasets: [
+        {
+          label: 'Медиана ₽/м²',
+          data: medianData.length ? medianData : [userPpm2],
+          borderColor: '#2563EB',
+          backgroundColor: 'rgba(37,99,235,.07)',
+          borderWidth: 2.5,
+          pointRadius: sorted.length > 30 ? 0 : 3,
+          pointBackgroundColor: '#2563EB',
+          fill: true,
+          tension: 0.4,
+        },
+        {
+          label: 'Ваша оценка',
+          data: Array(Math.max(labels.length, 1)).fill(userPpm2),
+          borderColor: '#16A34A',
+          borderWidth: 2,
+          borderDash: [6, 4],
+          pointRadius: 0,
+          fill: false,
+          tension: 0,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { font: { size: 10 }, boxWidth: 12, padding: 10 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString('ru') + ' ₽/м²',
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { font: { size: 9 }, maxRotation: 0 }, grid: { display: false } },
+        y: {
+          ticks: { font: { size: 9 }, callback: v => (v / 1000).toFixed(0) + 'к' },
+          grid: { color: '#F1F5F9' },
+        },
+      },
+    },
+  });
+}
+
+function renderCompareBar(detail, userPpm2, rooms) {
+  const prices = detail.price_history.map(p => p.median_price_per_m2).filter(Boolean);
+  document.getElementById('compareTitle').textContent =
+    `Сравнение с рынком микрорайона (${rooms}-комн.)`;
+
+  if (!prices.length) return;
+
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const pct = max > min ? Math.round(((userPpm2 - min) / (max - min)) * 100) : 50;
+  const clampedPct = Math.max(5, Math.min(95, pct));
+
+  document.getElementById('compareLabels').innerHTML =
+    `<span>Мин.: ${fmtPpm2(min)}</span><span>Макс.: ${fmtPpm2(max)}</span>`;
+  document.getElementById('compareFill').style.width = clampedPct + '%';
+
+  const median = detail.price_stats?.median_price_per_m2;
+  if (median) {
+    const diff = Math.round(((userPpm2 / median) - 1) * 100);
+    const sign = diff >= 0 ? '+' : '';
+    document.getElementById('compareCaption').innerHTML =
+      `<i class="bi bi-check-circle-fill me-1"></i>Ваша квартира: ${fmtPpm2(userPpm2)} — ${sign}${diff}% от медианы`;
+  }
+}
+
+function showResultsSection() {
   document.getElementById('idleState').style.display = 'none';
   const rs = document.getElementById('resultsSection');
   rs.classList.add('visible');
-
   rs.style.opacity = '0';
   rs.style.transform = 'translateY(16px)';
   rs.style.transition = 'all .3s ease';
@@ -427,76 +589,6 @@ function showResults() {
     rs.style.opacity = '1';
     rs.style.transform = 'translateY(0)';
   }, 50);
-
-  renderEstimateChart(ppm2Used);
-}
-
-// ── Chart ──
-let estimateChart = null;
-function renderEstimateChart(userPpm2 = 191000) {
-  const ctx = document.getElementById('estimateChart').getContext('2d');
-  if (estimateChart) estimateChart.destroy();
-
-  const labels = [];
-  const base = new Date('2026-01-13');
-  for (let i = 0; i < 13; i++) {
-    const d = new Date(base);
-    d.setDate(d.getDate() + i * 7);
-    labels.push(d.toLocaleDateString('ru', { day:'numeric', month:'short' }));
-  }
-  const data = [183000, 185500, 184000, 188000, 190000, 189000, 192000, 194500, 196000, 193000, 191000, 192000, 191000];
-
-  estimateChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'Медиана ₽/м²',
-          data,
-          borderColor: '#2563EB',
-          backgroundColor: 'rgba(37,99,235,.07)',
-          borderWidth: 2.5,
-          pointRadius: 3,
-          pointBackgroundColor: '#2563EB',
-          fill: true,
-          tension: 0.4,
-        },
-        {
-          label: 'Ваша оценка',
-          data: Array(13).fill(userPpm2),
-          borderColor: '#16A34A',
-          borderWidth: 2,
-          borderDash: [6, 4],
-          pointRadius: 0,
-          fill: false,
-          tension: 0,
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: {
-          position: 'top',
-          labels: { font: { size: 10 }, boxWidth: 12, padding: 10 }
-        },
-        tooltip: {
-          callbacks: {
-            label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString('ru') + ' ₽/м²'
-          }
-        }
-      },
-      scales: {
-        x: { ticks: { font: { size: 9 }, maxRotation: 0 }, grid: { display: false } },
-        y: {
-          ticks: { font: { size: 9 }, callback: v => (v/1000).toFixed(0) + 'к' },
-          grid: { color: '#F1F5F9' }
-        }
-      }
-    }
-  });
 }
 </script>
 </body>

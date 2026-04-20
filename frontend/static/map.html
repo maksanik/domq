@@ -9,8 +9,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-  <script type="module" src="api.js"></script>
-  <script type="module" src="utils.js"></script>
+  <script src="https://unpkg.com/h3-js@4.1.0/dist/h3-js.umd.js"></script>
   <style>
     :root {
       --primary: #2563EB;
@@ -58,7 +57,7 @@
 
     .room-chips { display: flex; gap: 5px; }
     .room-chip {
-      width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+      min-width: 32px; height: 32px; padding: 0 8px; display: flex; align-items: center; justify-content: center;
       border: 1.5px solid var(--border); border-radius: 7px; font-weight: 600; font-size: 0.82rem;
       cursor: pointer; color: var(--muted); transition: all .15s; background: #fff;
     }
@@ -120,6 +119,14 @@
       position: absolute; top: 14px; left: 14px; z-index: 800;
       display: flex; flex-direction: column; gap: 6px;
     }
+
+    /* map loading overlay */
+    #mapLoader {
+      position: absolute; inset: 0; z-index: 700;
+      background: rgba(248,250,252,.75); display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 12px;
+    }
+    #mapLoader p { font-size: .875rem; color: var(--muted); font-weight: 500; }
   </style>
 </head>
 <body>
@@ -134,7 +141,7 @@
       <a class="nav-link" href="estimate.html"><i class="bi bi-calculator me-1"></i>Оценить квартиру</a>
     </div>
   </div>
-  <div class="last-update"><i class="bi bi-clock me-1"></i>Обновлено: 13.04.2026, 08:45</div>
+  <div class="last-update"><i class="bi bi-clock me-1"></i>DomQ</div>
 </nav>
 
 <!-- ── Layout ── -->
@@ -143,14 +150,20 @@
   <div style="position:relative;flex:1;min-width:0;overflow:hidden;height:100%">
     <div id="map"></div>
 
+    <!-- Loading overlay -->
+    <div id="mapLoader">
+      <div class="spinner-border text-primary" role="status"></div>
+      <p>Загрузка тепловой карты...</p>
+    </div>
+
     <!-- Legend -->
     <div class="map-legend">
       <div class="legend-title">Медианная цена / м²</div>
       <div class="legend-gradient"></div>
       <div class="legend-labels">
-        <span>100 т₽</span>
-        <span>250 т₽</span>
-        <span>400 т₽+</span>
+        <span id="legendMin">100 т₽</span>
+        <span id="legendMid">250 т₽</span>
+        <span id="legendMax">400 т₽+</span>
       </div>
       <div style="margin-top:8px;font-size:.7rem;color:var(--muted);border-top:1px solid var(--border);padding-top:6px">
         <span style="border:1.5px dashed #94A3B8;display:inline-block;width:12px;height:8px;vertical-align:middle;opacity:.5"></span>
@@ -160,7 +173,7 @@
 
     <!-- Map controls -->
     <div class="map-controls">
-      <button id="togglePins" class="toggle-btn" onclick="this.classList.toggle('on')">
+      <button id="togglePins" class="toggle-btn">
         <i class="bi bi-geo-alt-fill"></i> Объявления
       </button>
     </div>
@@ -175,14 +188,14 @@
       </div>
       <div>
         <div style="font-size:.72rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;font-weight:600">Комнатность</div>
-        <div class="room-chips">
-          <div class="room-chip active" onclick="selectCell()">Все</div>
-          <div class="room-chip" onclick="selectCell()">1</div>
-          <div class="room-chip" onclick="selectCell()">2</div>
-          <div class="room-chip" onclick="selectCell()">3</div>
-          <div class="room-chip" onclick="selectCell()">4</div>
-          <div class="room-chip" onclick="selectCell()">5</div>
-          <div class="room-chip" onclick="selectCell()">6</div>
+        <div class="room-chips" id="roomChips">
+          <div class="room-chip active" data-rooms="">Все</div>
+          <div class="room-chip" data-rooms="1">1</div>
+          <div class="room-chip" data-rooms="2">2</div>
+          <div class="room-chip" data-rooms="3">3</div>
+          <div class="room-chip" data-rooms="4">4</div>
+          <div class="room-chip" data-rooms="5">5</div>
+          <div class="room-chip" data-rooms="6">6</div>
         </div>
       </div>
     </div>
@@ -197,27 +210,26 @@
       <!-- Cell data -->
       <div class="cell-data" id="cellData">
         <div class="cell-header">
-          <div class="cell-hex" id="cellHex">8911060006bffff</div>
-          <div style="font-weight:700;font-size:1rem;color:var(--text);margin-bottom:2px">Арбат · Центральный АО</div>
-          <div class="cell-area"><i class="bi bi-hexagon me-1"></i>Радиус ~174 м · Активных: <strong>47</strong></div>
+          <div class="cell-hex" id="cellHex"></div>
+          <div class="cell-area" id="cellArea"></div>
         </div>
 
         <div class="stats-grid">
           <div class="stat-box">
             <div class="stat-label">Медианная цена / м²</div>
-            <div class="stat-value price">196 500 ₽</div>
+            <div class="stat-value price" id="statMedian">—</div>
           </div>
           <div class="stat-box">
             <div class="stat-label">Средняя цена / м²</div>
-            <div class="stat-value">214 300 ₽</div>
+            <div class="stat-value" id="statAvg">—</div>
           </div>
           <div class="stat-box">
             <div class="stat-label">Объявлений</div>
-            <div class="stat-value">47</div>
+            <div class="stat-value" id="statCount">—</div>
           </div>
           <div class="stat-box">
             <div class="stat-label">Срок продажи</div>
-            <div class="stat-value">38 дней</div>
+            <div class="stat-value" id="statDays">—</div>
           </div>
         </div>
 
@@ -226,7 +238,7 @@
           <canvas id="priceChart" height="130"></canvas>
         </div>
 
-        <a href="index.html?h3=8911060006bffff" class="btn-goto">
+        <a href="index.html" class="btn-goto" id="cellGotoBtn">
           <i class="bi bi-search"></i> Найти объявления в этом районе
         </a>
       </div>
@@ -234,173 +246,155 @@
   </div>
 </div>
 
-<script>
-// ── Init map ──
+<script type="module">
+import { getH3StatsMap, getH3Stats } from './api.js';
+import { priceToColor, fmtPpm2, fmtKilo, showToast } from './utils.js';
+
+// ── Map init ──
 const map = L.map('map', { preferCanvas: true }).setView([55.751, 37.617], 12);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap contributors'
+  attribution: '© OpenStreetMap contributors',
 }).addTo(map);
-// Leaflet нужно знать финальный размер контейнера после рендера
 requestAnimationFrame(() => map.invalidateSize());
 
-// ── Генератор правильной гексагональной сетки ──
-//
-// Pointy-top гексагоны в аксиальных координатах (q, r).
-// Центр сетки: Москва [55.751, 37.617].
-// R_LAT — радиус гексагона в градусах широты (~174 м, H3 res 9).
-// Долготу масштабируем на cos(lat) чтобы гексагоны выглядели правильно на карте.
+// ── State ──
+let currentRooms = null;
+let hexLayers = {};
+let chartInstance = null;
+let selectedH3 = null;
+let pinMarkers = [];
+let pinsVisible = false;
 
-const ORIGIN_LAT = 55.751;
-const ORIGIN_LNG = 37.617;
-const COS_LAT    = Math.cos(ORIGIN_LAT * Math.PI / 180); // ~0.562
-const R_LAT      = 0.00155;                               // ~172 м
-const R_LNG      = R_LAT / COS_LAT;
+// ── Load and render hexagons ──
+async function loadMap(rooms) {
+  // Clear existing layers
+  Object.values(hexLayers).forEach(layer => map.removeLayer(layer));
+  hexLayers = {};
 
-// Вершины pointy-top гексагона с центром (lat, lng)
-function hexVertices(lat, lng) {
-  const verts = [];
-  for (let i = 0; i < 6; i++) {
-    const a = Math.PI / 180 * (60 * i + 30); // 30°, 90°, 150° ...
-    verts.push([lat + R_LAT * Math.sin(a), lng + R_LNG * Math.cos(a)]);
-  }
-  return verts;
-}
+  document.getElementById('mapLoader').style.display = 'flex';
 
-// Центр гексагона по аксиальным координатам (q, r)
-function hexCenter(q, r) {
-  const lng = ORIGIN_LNG + R_LNG * Math.sqrt(3) * (q + r / 2);
-  const lat = ORIGIN_LAT + R_LAT * 1.5 * r;
-  return [lat, lng];
-}
+  try {
+    const params = rooms != null ? { rooms } : {};
+    const data = await getH3StatsMap(params);
 
-// ── Псевдослучайные данные по (q,r) — детерминированные, без Math.random() ──
-const AREAS = [
-  'Арбат','Хамовники','Якиманка','Замоскворечье','Тверской','Мещанский',
-  'Пресненский','Басманный','Красносельский','Таганский','Марьина Роща',
-  'Дорогомилово','Дорогой Рощи','Очаково','Раменки','Фили','Щукино',
-  'Войковский','Бутырский','Алексеевский','Богородское','Сокольники',
-];
+    // Динамический диапазон — только ячейки с достаточным кол-вом данных
+    const significantPrices = data
+      .filter(item => item.listings_count >= 3 && item.median_price_per_m2)
+      .map(item => item.median_price_per_m2);
+    const priceMin = significantPrices.length
+      ? Math.min(...significantPrices)
+      : 100_000;
+    const priceMax = significantPrices.length
+      ? Math.max(...significantPrices)
+      : 400_000;
 
-function seededVal(q, r, salt = 0) {
-  // простой детерминированный хэш
-  const x = (q * 374761393 + r * 1073741789 + salt * 2654435761) | 0;
-  return (x >>> 0) / 0xFFFFFFFF;
-}
+    // Обновить подписи легенды
+    document.getElementById('legendMin').textContent = fmtKilo(priceMin);
+    document.getElementById('legendMid').textContent = fmtKilo(Math.round((priceMin + priceMax) / 2));
+    document.getElementById('legendMax').textContent = fmtKilo(priceMax) + '+';
 
-// Цена: в центре Москвы дороже — линейно убывает от центра
-function mockPrice(q, r) {
-  const distSq = q * q + r * r + q * r;
-  const base = 280000 - distSq * 5200;
-  const jitter = (seededVal(q, r, 1) - 0.5) * 30000;
-  return Math.max(95000, Math.min(380000, Math.round((base + jitter) / 1000) * 1000));
-}
+    data.forEach(item => {
+      const boundary = h3.cellToBoundary(item.h3_index); // [[lat,lng], ...]
+      const hasData = item.listings_count >= 3;
+      const color = item.median_price_per_m2
+        ? priceToColor(item.median_price_per_m2, priceMin, priceMax)
+        : '#CBD5E1';
 
-function mockCount(q, r) {
-  return 2 + Math.floor(seededVal(q, r, 2) * 60);
-}
+      const style = hasData
+        ? { color: '#fff', weight: 0.8, fillColor: color, fillOpacity: 0.65 }
+        : { color: '#94A3B8', weight: 1, dashArray: '4,4', fillColor: color, fillOpacity: 0.65 };
 
-// ── Отрисовка сетки ──
-// Цветовой градиент: зелёный (дёшево) → жёлтый → красный (дорого)
-const PRICE_MIN = 100000, PRICE_MAX = 350000;
+      const poly = L.polygon(boundary, style).addTo(map);
 
-function priceToColor(price) {
-  const t = Math.max(0, Math.min(1, (price - PRICE_MIN) / (PRICE_MAX - PRICE_MIN)));
-  let r, g, b;
-  if (t < 0.5) {
-    const s = t * 2;
-    r = Math.round(0x4A + (0xFA - 0x4A) * s);
-    g = Math.round(0xDE + (0xCC - 0xDE) * s);
-    b = Math.round(0x80 + (0x15 - 0x80) * s);
-  } else {
-    const s = (t - 0.5) * 2;
-    r = Math.round(0xFA + (0xEF - 0xFA) * s);
-    g = Math.round(0xCC + (0x44 - 0xCC) * s);
-    b = Math.round(0x15 + (0x44 - 0x15) * s);
-  }
-  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
-}
+      poly.on('click', () => onCellClick(item.h3_index));
+      poly.on('mouseover', function () {
+        this.setStyle({ fillOpacity: 0.85 });
+      });
+      poly.on('mouseout', function () {
+        this.setStyle({ fillOpacity: 0.65 });
+      });
 
-// Дефолтный объект для showCellInfo
-let defaultCell = null;
+      hexLayers[item.h3_index] = poly;
+    });
 
-const GRID_R = 7; // радиус сетки в шагах
-for (let r = -GRID_R; r <= GRID_R; r++) {
-  for (let q = -GRID_R; q <= GRID_R; q++) {
-    // Отсекаем углы — получаем шестиугольную форму сетки
-    if (Math.abs(q + r) > GRID_R) continue;
-
-    const [clat, clng] = hexCenter(q, r);
-    const price   = mockPrice(q, r);
-    const count   = mockCount(q, r);
-    const lowData = count < 3;
-    const areaIdx = Math.floor(seededVal(q, r, 3) * AREAS.length);
-    const color   = priceToColor(price);
-
-    const cell = { price, count, lowData, color,
-      area: AREAS[areaIdx],
-      h3index: `8911060${(Math.abs(q * 17 + r * 31) % 100).toString().padStart(2,'0')}ffff`,
-      lat: clat, lng: clng,
-    };
-
-    // Запомним центральный гексагон для демо
-    if (q === 0 && r === 0) defaultCell = cell;
-
-    const verts = hexVertices(clat, clng);
-    const style = lowData
-      ? { color: '#94A3B8', weight: 1, dashArray: '4,4', fillColor: color, fillOpacity: 0.22 }
-      : { color: '#fff',    weight: 0.8,                  fillColor: color, fillOpacity: 0.60 };
-
-    const poly = L.polygon(verts, style).addTo(map);
-    poly.on('click',     ()         => showCellInfo(cell));
-    poly.on('mouseover', function() { this.setStyle({ fillOpacity: lowData ? 0.38 : 0.82 }); });
-    poly.on('mouseout',  function() { this.setStyle({ fillOpacity: lowData ? 0.22 : 0.60 }); });
+    if (data.length === 0) {
+      showToast('Нет данных для отображения', 'warn');
+    }
+  } catch (e) {
+    showToast('Ошибка загрузки карты: ' + e.message, 'error');
+  } finally {
+    document.getElementById('mapLoader').style.display = 'none';
   }
 }
 
-// ── Show cell info ──
-function showCellInfo(h) {
+// ── Cell click ──
+async function onCellClick(h3_index) {
+  selectedH3 = h3_index;
   document.getElementById('cellPlaceholder').style.display = 'none';
   const cd = document.getElementById('cellData');
   cd.style.display = 'block';
 
-  document.querySelector('.cell-hex').textContent = h.h3index;
-  document.querySelector('.cell-data .cell-header div:nth-child(2)').textContent = h.area + ' · Москва';
-  document.querySelector('.cell-area').innerHTML =
-    `<i class="bi bi-hexagon me-1"></i>Радиус ~174 м · Активных: <strong>${h.count}</strong>`;
+  document.getElementById('cellHex').textContent = h3_index;
+  document.getElementById('cellArea').innerHTML =
+    `<i class="bi bi-hexagon me-1"></i>Загрузка...`;
+  document.getElementById('statMedian').textContent = '…';
+  document.getElementById('statAvg').textContent = '…';
+  document.getElementById('statCount').textContent = '…';
+  document.getElementById('statDays').textContent = '…';
 
-  const boxes = cd.querySelectorAll('.stat-box');
-  boxes[0].querySelector('.stat-value').textContent = h.price.toLocaleString('ru-RU') + ' ₽';
-  boxes[1].querySelector('.stat-value').textContent = Math.round(h.price * 1.09).toLocaleString('ru-RU') + ' ₽';
-  boxes[2].querySelector('.stat-value').textContent = h.count;
-  boxes[3].querySelector('.stat-value').textContent =
-    h.lowData ? '— (мало данных)' : (28 + Math.round(h.price / 8000) % 35) + ' дней';
-
-  cd.querySelector('.btn-goto').href = 'index.html?h3=' + h.h3index;
-
-  renderChart(h.price);
+  try {
+    const params = { h3_index };
+    if (currentRooms != null) params.rooms = currentRooms;
+    const detail = await getH3Stats(params);
+    populatePanel(detail);
+  } catch (e) {
+    showToast('Не удалось загрузить статистику района', 'error');
+    document.getElementById('cellArea').textContent = 'Нет данных';
+  }
 }
 
-function selectCell() {
-  if (defaultCell) showCellInfo(defaultCell);
+// ── Populate side panel ──
+function populatePanel(detail) {
+  const ps = detail.price_stats;
+  const lq = detail.liquidity;
+  const count = ps?.listings_count ?? 0;
+
+  document.getElementById('cellArea').innerHTML =
+    `<i class="bi bi-hexagon me-1"></i>Радиус ~174 м · Активных: <strong>${count}</strong>`;
+
+  document.getElementById('statMedian').textContent = fmtPpm2(ps?.median_price_per_m2);
+  document.getElementById('statAvg').textContent = fmtPpm2(ps?.avg_price_per_m2);
+  document.getElementById('statCount').textContent = count > 0 ? String(count) : '—';
+  document.getElementById('statDays').textContent =
+    lq?.median_days != null ? `${lq.median_days} дней` : '— (мало данных)';
+
+  document.getElementById('cellGotoBtn').href =
+    `index.html?h3=${detail.h3_index}`;
+
+  renderChart(detail.price_history);
 }
 
-// ── Price history chart ──
-let chartInstance = null;
-function renderChart(basePrice = 196000) {
+// ── Price chart ──
+function renderChart(history) {
   const ctx = document.getElementById('priceChart').getContext('2d');
   if (chartInstance) chartInstance.destroy();
 
-  const labels = [];
-  const base = new Date('2026-01-13');
-  for (let i = 0; i < 12; i++) {
-    const d = new Date(base);
-    d.setDate(d.getDate() + i * 7);
-    labels.push(d.toLocaleDateString('ru', { day:'numeric', month:'short' }));
-  }
-  // Генерируем правдоподобную динамику вокруг переданной базовой цены
-  const data = Array.from({length:12}, (_,i) =>
-    Math.round(basePrice * (0.96 + i * 0.003 + (Math.random() - 0.5) * 0.015))
+  // API returns newest-first; reverse for chronological display
+  const sorted = [...history].reverse();
+  const labels = sorted.map(p =>
+    new Date(p.date).toLocaleDateString('ru', { day: 'numeric', month: 'short' })
   );
+  const data = sorted.map(p => p.median_price_per_m2);
+
+  if (data.length === 0) {
+    // Draw empty state
+    chartInstance = new Chart(ctx, {
+      type: 'line',
+      data: { labels: ['Нет данных'], datasets: [{ data: [0], borderColor: '#CBD5E1', pointRadius: 0 }] },
+      options: { responsive: true, plugins: { legend: { display: false } } },
+    });
+    return;
+  }
 
   chartInstance = new Chart(ctx, {
     type: 'line',
@@ -412,35 +406,84 @@ function renderChart(basePrice = 196000) {
         borderColor: '#2563EB',
         backgroundColor: 'rgba(37,99,235,0.08)',
         borderWidth: 2,
-        pointRadius: 3,
+        pointRadius: sorted.length > 30 ? 0 : 3,
         pointBackgroundColor: '#2563EB',
         fill: true,
         tension: 0.4,
-      }]
+      }],
     },
     options: {
       responsive: true,
       plugins: {
         legend: { display: false },
         tooltip: {
-          callbacks: {
-            label: ctx => ctx.parsed.y.toLocaleString('ru') + ' ₽/м²'
-          }
-        }
+          callbacks: { label: ctx => ctx.parsed.y.toLocaleString('ru') + ' ₽/м²' },
+        },
       },
       scales: {
         x: { ticks: { font: { size: 9 }, maxRotation: 0 }, grid: { display: false } },
         y: {
-          ticks: { font: { size: 9 }, callback: v => (v/1000).toFixed(0) + 'к' },
-          grid: { color: '#F1F5F9' }
-        }
-      }
-    }
+          ticks: { font: { size: 9 }, callback: v => (v / 1000).toFixed(0) + 'к' },
+          grid: { color: '#F1F5F9' },
+        },
+      },
+    },
   });
 }
 
-// Показать центральный гексагон для демонстрации
-setTimeout(() => { if (defaultCell) showCellInfo(defaultCell); }, 600);
+// ── Room chips ──
+document.querySelectorAll('#roomChips .room-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('#roomChips .room-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    const val = chip.dataset.rooms;
+    currentRooms = val === '' ? null : parseInt(val);
+    loadMap(currentRooms);
+    if (selectedH3) onCellClick(selectedH3);
+  });
+});
+
+// ── Pins toggle (load visible listings as markers) ──
+document.getElementById('togglePins').addEventListener('click', function () {
+  this.classList.toggle('on');
+  pinsVisible = this.classList.contains('on');
+  if (pinsVisible) {
+    loadPins();
+  } else {
+    clearPins();
+  }
+});
+
+async function loadPins() {
+  clearPins();
+  const bounds = map.getBounds();
+  // Simple bounding-box approximation: fetch up to 200 active listings
+  try {
+    const { getListings } = await import('./api.js');
+    const result = await getListings({ limit: 200, is_active: true });
+    result.items.forEach(item => {
+      if (!item.latitude || !item.longitude) return;
+      if (!bounds.contains([item.latitude, item.longitude])) return;
+      const m = L.circleMarker([item.latitude, item.longitude], {
+        radius: 5, color: item.is_hot_deal ? '#EF4444' : '#2563EB',
+        fillColor: item.is_hot_deal ? '#EF4444' : '#2563EB',
+        fillOpacity: 0.85, weight: 1,
+      }).addTo(map);
+      m.bindPopup(`<strong>${item.address ?? '—'}</strong><br>${(item.price / 1e6).toFixed(1)} млн ₽`);
+      pinMarkers.push(m);
+    });
+  } catch {
+    // pins are optional — ignore failures
+  }
+}
+
+function clearPins() {
+  pinMarkers.forEach(m => map.removeLayer(m));
+  pinMarkers = [];
+}
+
+// ── Initial load ──
+loadMap(null);
 </script>
 </body>
 </html>

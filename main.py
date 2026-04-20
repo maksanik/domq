@@ -30,3 +30,7 @@ app.include_router(predict.router)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+from fastapi.staticfiles import StaticFiles
+app.mount("/", StaticFiles(directory="frontend/static", html=True), name="static")

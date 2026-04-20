@@ -21,19 +21,30 @@ async def get_map_stats(
     """
     Все H3-соты с медианной ценой м².
     Используется фронтендом для отрисовки heatmap-слоя на карте.
+    При rooms=null агрегирует все комнатности в одну строку на соту
+    (взвешенное среднее медиан по listings_count).
     """
     pool = request.app.state.pool
 
-    query = """
-        SELECT h3_index, rooms, median_price_per_m2, listings_count
-        FROM price_stats
-        WHERE 1=1
-    """
-    params: list = []
-
     if rooms is not None:
-        query += " AND rooms = $1"
-        params.append(rooms)
+        query = """
+            SELECT h3_index, rooms, median_price_per_m2, listings_count
+            FROM price_stats
+            WHERE rooms = $1
+        """
+        params: list = [rooms]
+    else:
+        query = """
+            SELECT
+                h3_index,
+                NULL::int AS rooms,
+                SUM(median_price_per_m2 * listings_count)
+                    / NULLIF(SUM(listings_count), 0) AS median_price_per_m2,
+                SUM(listings_count) AS listings_count
+            FROM price_stats
+            GROUP BY h3_index
+        """
+        params = []
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(query, *params)
@@ -56,43 +67,80 @@ async def get_cell_stats(
     pool = request.app.state.pool
 
     async with pool.acquire() as conn:
-        # price_stats
-        ps_row = await conn.fetchrow(
-            """
-            SELECT h3_index, rooms, avg_price_per_m2, median_price_per_m2,
-                   listings_count, calculated_at
-            FROM price_stats
-            WHERE h3_index = $1 AND ($2::int IS NULL OR rooms = $2)
-            LIMIT 1
-            """,
-            h3_index,
-            rooms,
-        )
-
-        # liquidity_stats
-        lq_row = await conn.fetchrow(
-            """
-            SELECT avg_days_on_market, median_days
-            FROM liquidity_stats
-            WHERE h3_index = $1 AND ($2::int IS NULL OR rooms = $2)
-            LIMIT 1
-            """,
-            h3_index,
-            rooms,
-        )
-
-        # price_history — последние 90 дней
-        ph_rows = await conn.fetch(
-            """
-            SELECT date, median_price_per_m2
-            FROM price_history
-            WHERE h3_index = $1 AND ($2::int IS NULL OR rooms = $2)
-            ORDER BY date DESC
-            LIMIT 90
-            """,
-            h3_index,
-            rooms,
-        )
+        if rooms is not None:
+            ps_row = await conn.fetchrow(
+                """
+                SELECT h3_index, rooms, avg_price_per_m2, median_price_per_m2,
+                       listings_count, calculated_at
+                FROM price_stats
+                WHERE h3_index = $1 AND rooms = $2
+                LIMIT 1
+                """,
+                h3_index,
+                rooms,
+            )
+            lq_row = await conn.fetchrow(
+                """
+                SELECT avg_days_on_market, median_days
+                FROM liquidity_stats
+                WHERE h3_index = $1 AND rooms = $2
+                LIMIT 1
+                """,
+                h3_index,
+                rooms,
+            )
+            ph_rows = await conn.fetch(
+                """
+                SELECT date, median_price_per_m2
+                FROM price_history
+                WHERE h3_index = $1 AND rooms = $2
+                ORDER BY date DESC
+                LIMIT 90
+                """,
+                h3_index,
+                rooms,
+            )
+        else:
+            # Агрегат по всем комнатностям: взвешенное среднее медиан
+            ps_row = await conn.fetchrow(
+                """
+                SELECT
+                    $1::text AS h3_index,
+                    NULL::int AS rooms,
+                    SUM(avg_price_per_m2 * listings_count)
+                        / NULLIF(SUM(listings_count), 0) AS avg_price_per_m2,
+                    SUM(median_price_per_m2 * listings_count)
+                        / NULLIF(SUM(listings_count), 0) AS median_price_per_m2,
+                    SUM(listings_count) AS listings_count,
+                    MAX(calculated_at) AS calculated_at
+                FROM price_stats
+                WHERE h3_index = $1
+                """,
+                h3_index,
+            )
+            lq_row = await conn.fetchrow(
+                """
+                SELECT
+                    ROUND(AVG(avg_days_on_market))::int AS avg_days_on_market,
+                    ROUND(AVG(median_days))::int AS median_days
+                FROM liquidity_stats
+                WHERE h3_index = $1
+                """,
+                h3_index,
+            )
+            ph_rows = await conn.fetch(
+                """
+                SELECT
+                    date,
+                    AVG(median_price_per_m2) AS median_price_per_m2
+                FROM price_history
+                WHERE h3_index = $1
+                GROUP BY date
+                ORDER BY date DESC
+                LIMIT 90
+                """,
+                h3_index,
+            )
 
     if not ps_row and not ph_rows:
         raise HTTPException(status_code=404, detail="H3 cell not found in stats")

@@ -23,19 +23,17 @@ AREA_TOLERANCE = 0.5  # допуск на совпадение площади к
 logger = logging.getLogger(__name__)
 
 
-async def upsert_h3_cell(
+async def upsert_h3_cells(
     conn: asyncpg.Connection | asyncpg.pool.PoolConnectionProxy,
-    h3_index: str,
-    resolution: int,
+    cells: list[tuple[str, int]],
 ):
-    await conn.execute(
+    await conn.executemany(
         """
         INSERT INTO h3_cells (h3_index, resolution)
         VALUES ($1, $2)
         ON CONFLICT (h3_index) DO NOTHING
         """,
-        h3_index,
-        resolution,
+        cells,
     )
 
 
@@ -54,8 +52,7 @@ async def get_or_create_building(
     h3_r9 = h3.latlng_to_cell(float(lat), float(lon), H3_RESOLUTION)
     h3_r11 = h3.latlng_to_cell(float(lat), float(lon), H3_R11_RESOLUTION)
 
-    await upsert_h3_cell(conn, h3_r9, H3_RESOLUTION)
-    await upsert_h3_cell(conn, h3_r11, H3_R11_RESOLUTION)
+    await upsert_h3_cells(conn, [(h3_r9, H3_RESOLUTION), (h3_r11, H3_R11_RESOLUTION)])
 
     row = await conn.fetchrow(
         """
@@ -219,37 +216,40 @@ async def upsert_listing(
         )
 
 
-async def process_batch(pool: asyncpg.Pool, rows: list[dict]):
-    """Обрабатывает батч; каждая строка изолирована в своей транзакции."""
-    async with pool.acquire() as conn:
-        for raw in rows:
-            raw_id = raw["id"]
-            try:
-                async with conn.transaction():
-                    building_id = await get_or_create_building(conn, raw)
-                    if building_id is None:
-                        logger.warning(
-                            f"raw_id={raw_id}: нет координат, пропускаем нормализацию зданий/квартир"
-                        )
-                        await conn.execute(
-                            "UPDATE listings_raw SET normalized_at = NOW() WHERE id = $1",
-                            raw_id,
-                        )
-                        continue
-
-                    flat_id = await get_or_create_flat(conn, building_id, raw)
-                    await upsert_listing(conn, raw_id, flat_id, raw)
+async def process_row(pool: asyncpg.Pool, raw: dict):
+    raw_id = raw["id"]
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                building_id = await get_or_create_building(conn, raw)
+                if building_id is None:
+                    logger.warning(
+                        f"raw_id={raw_id}: нет координат, пропускаем нормализацию зданий/квартир"
+                    )
                     await conn.execute(
                         "UPDATE listings_raw SET normalized_at = NOW() WHERE id = $1",
                         raw_id,
                     )
-            except Exception as e:
-                logger.error(f"Ошибка обработки raw_id={raw_id}: {e}")
+                    return
+
+                flat_id = await get_or_create_flat(conn, building_id, raw)
+                await upsert_listing(conn, raw_id, flat_id, raw)
+                await conn.execute(
+                    "UPDATE listings_raw SET normalized_at = NOW() WHERE id = $1",
+                    raw_id,
+                )
+    except Exception as e:
+        logger.error(f"Ошибка обработки raw_id={raw_id}: {e}")
 
 
-async def run(dsn: str = DATABASE_DSN, batch_size: int = 500):
+async def process_batch(pool: asyncpg.Pool, rows: list[dict]):
+    """Обрабатывает батч параллельно, каждая строка — отдельное соединение из пула."""
+    await asyncio.gather(*[process_row(pool, raw) for raw in rows])
+
+
+async def run(dsn: str = DATABASE_DSN, batch_size: int = 2000):
     logger.info("Запуск ETL-нормализации")
-    pool = await asyncpg.create_pool(dsn, min_size=2, max_size=10)
+    pool = await asyncpg.create_pool(dsn, min_size=4, max_size=20)
 
     try:
         total = 0
