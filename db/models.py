@@ -285,7 +285,7 @@ class DealAnalysis(Base):
     )
     median_price_per_m2: Mapped[Optional[float]] = mapped_column(Numeric(10, 2))
     actual_price_per_m2: Mapped[Optional[float]] = mapped_column(Numeric(10, 2))
-    discount_percent: Mapped[Optional[float]] = mapped_column(Numeric(5, 2))
+    discount_percent: Mapped[Optional[float]] = mapped_column(Numeric(7, 2))
     is_hot_deal: Mapped[bool] = mapped_column(Boolean, nullable=False)
     calculated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

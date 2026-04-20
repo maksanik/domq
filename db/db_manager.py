@@ -81,7 +81,7 @@ class DatabaseManager:
         return count
 
     async def get_unscraped_chunks(self) -> list[dict]:
-        stale_threshold = datetime.now(timezone.utc) - timedelta(weeks=1)
+        stale_threshold = datetime.now(timezone.utc) - timedelta(days=1)
         result = await self.session.execute(
             select(
                 PriceChunk.rooms_number,
@@ -107,7 +107,7 @@ class DatabaseManager:
         result = await self.session.execute(
             update(ListingRaw)
             .where(ListingRaw.is_active == True, ListingRaw.parsed_at < since)  # noqa: E712
-            .values(is_active=False)
+            .values(is_active=False, normalized_at=None)
             .returning(ListingRaw.id)
         )
         deactivated = len(result.all())
@@ -153,6 +153,7 @@ class DatabaseManager:
                         "has_photos": listing.get("has_photos"),
                         "parsed_at": datetime.now(timezone.utc),
                         "is_active": True,
+                        "normalized_at": None,
                     },
                 )
             )

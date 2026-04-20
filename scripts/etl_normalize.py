@@ -23,7 +23,11 @@ AREA_TOLERANCE = 0.5  # допуск на совпадение площади к
 logger = logging.getLogger(__name__)
 
 
-async def upsert_h3_cell(conn: asyncpg.Connection, h3_index: str, resolution: int):
+async def upsert_h3_cell(
+    conn: asyncpg.Connection | asyncpg.pool.PoolConnectionProxy,
+    h3_index: str,
+    resolution: int,
+):
     await conn.execute(
         """
         INSERT INTO h3_cells (h3_index, resolution)
@@ -35,7 +39,9 @@ async def upsert_h3_cell(conn: asyncpg.Connection, h3_index: str, resolution: in
     )
 
 
-async def get_or_create_building(conn: asyncpg.Connection, raw: dict) -> int | None:
+async def get_or_create_building(
+    conn: asyncpg.Connection | asyncpg.pool.PoolConnectionProxy, raw: dict
+) -> int | None:
     """
     Возвращает building_id.
     Дедупликация по h3_index_r11 (H3 resolution 11, ~27м ≈ один дом).
@@ -71,11 +77,13 @@ async def get_or_create_building(conn: asyncpg.Connection, raw: dict) -> int | N
         raw.get("floors_total"),
         raw.get("material_type"),
     )
-    return row["id"]
+    return row["id"] if row is not None else None
 
 
 async def get_or_create_flat(
-    conn: asyncpg.Connection, building_id: int, raw: dict
+    conn: asyncpg.Connection | asyncpg.pool.PoolConnectionProxy,
+    building_id: int,
+    raw: dict,
 ) -> int:
     """
     Возвращает flat_id.
@@ -136,20 +144,28 @@ async def get_or_create_flat(
         rooms,
         floor,
     )
+    if row is None:
+        raise RuntimeError(
+            f"INSERT INTO flats не вернул id для building_id={building_id}"
+        )
     return row["id"]
 
 
 async def upsert_listing(
-    conn: asyncpg.Connection, raw_id: int, flat_id: int, raw: dict
+    conn: asyncpg.Connection | asyncpg.pool.PoolConnectionProxy,
+    raw_id: int,
+    flat_id: int,
+    raw: dict,
 ):
     """
     Создаёт или обновляет запись в listings.
-    При изменении цены фиксирует snapshot.
+    При изменении цены или деактивации фиксирует snapshot.
     """
     price = raw.get("price")
     area = raw.get("area_total")
     price_per_m2 = (float(price) / float(area)) if price and area else None
     parsed_at = raw.get("parsed_at")
+    is_active = raw.get("is_active", True)
 
     existing = await conn.fetchrow(
         "SELECT id, price FROM listings WHERE raw_id = $1", raw_id
@@ -166,15 +182,25 @@ async def upsert_listing(
                 listing_id,
                 price,
             )
+        if not is_active:
+            await conn.execute(
+                """
+                INSERT INTO listing_snapshots (listing_id, price, is_online, seen_at)
+                VALUES ($1, $2, false, NOW())
+                """,
+                listing_id,
+                existing["price"],
+            )
         await conn.execute(
             """
             UPDATE listings
-            SET price = $1, price_per_m2 = $2, last_seen_at = $3, is_active = true
-            WHERE id = $4
+            SET price = $1, price_per_m2 = $2, last_seen_at = $3, is_active = $4
+            WHERE id = $5
             """,
             price,
             price_per_m2,
             parsed_at,
+            is_active,
             listing_id,
         )
     else:
@@ -182,24 +208,24 @@ async def upsert_listing(
             """
             INSERT INTO listings (raw_id, flat_id, price, price_per_m2,
                                   is_active, first_seen_at, last_seen_at)
-            VALUES ($1, $2, $3, $4, true, $5, $5)
+            VALUES ($1, $2, $3, $4, $5, $6, $6)
             """,
             raw_id,
             flat_id,
             price,
             price_per_m2,
+            is_active,
             parsed_at,
         )
 
 
 async def process_batch(pool: asyncpg.Pool, rows: list[dict]):
-    """Обрабатывает батч в одной транзакции на батч (откат при ошибке)."""
+    """Обрабатывает батч; каждая строка изолирована в своей транзакции."""
     async with pool.acquire() as conn:
-        async with conn.transaction():
-            for raw in rows:
-                raw_id = raw["id"]
-                try:
-                    # listings_raw → h3_cells → buildings
+        for raw in rows:
+            raw_id = raw["id"]
+            try:
+                async with conn.transaction():
                     building_id = await get_or_create_building(conn, raw)
                     if building_id is None:
                         logger.warning(
@@ -211,19 +237,14 @@ async def process_batch(pool: asyncpg.Pool, rows: list[dict]):
                         )
                         continue
 
-                    # buildings → flats
                     flat_id = await get_or_create_flat(conn, building_id, raw)
-
-                    # flats → listings
                     await upsert_listing(conn, raw_id, flat_id, raw)
-
                     await conn.execute(
                         "UPDATE listings_raw SET normalized_at = NOW() WHERE id = $1",
                         raw_id,
                     )
-                except Exception as e:
-                    logger.error(f"Ошибка обработки raw_id={raw_id}: {e}")
-                    raise  # откатываем транзакцию
+            except Exception as e:
+                logger.error(f"Ошибка обработки raw_id={raw_id}: {e}")
 
 
 async def run(dsn: str = DATABASE_DSN, batch_size: int = 500):
@@ -238,7 +259,8 @@ async def run(dsn: str = DATABASE_DSN, batch_size: int = 500):
                 SELECT id, source, external_id, price, area_total, area_kitchen,
                        rooms, floor, floors_total,
                        latitude, longitude, address_text,
-                       year_built, material_type, parsed_at
+                       year_built, material_type, parsed_at,
+                       is_active
                 FROM listings_raw
                 WHERE normalized_at IS NULL
                 ORDER BY id
