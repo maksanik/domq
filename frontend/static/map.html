@@ -112,7 +112,7 @@
       box-shadow: 0 2px 12px rgba(0,0,0,.12); border: 1px solid var(--border); min-width: 170px;
     }
     .legend-title { font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-    .legend-gradient { height: 10px; border-radius: 5px; background: linear-gradient(to right, #4ADE80, #FACC15, #EF4444); margin-bottom: 6px; }
+    .legend-gradient { height: 10px; border-radius: 5px; background: linear-gradient(to right, #4ADE80, #86EFAC, #D9F99D, #FACC15, #F97316, #EF4444, #7F1D1D); margin-bottom: 6px; }
     .legend-labels { display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--muted); }
 
     .map-controls {
@@ -247,8 +247,8 @@
 </div>
 
 <script type="module">
-import { getH3StatsMap, getH3Stats } from './api.js?v=2';
-import { tToColor, fmtPpm2, fmtKilo, showToast } from './utils.js?v=2';
+import { getH3StatsMap, getH3Stats } from './api.js?v=3';
+import { tToColor, fmtPpm2, fmtKilo, showToast } from './utils.js?v=4';
 
 // ── Map init ──
 const map = L.map('map', { preferCanvas: true }).setView([55.751, 37.617], 12);
@@ -277,16 +277,22 @@ async function loadMap(rooms) {
     const params = rooms != null ? { rooms } : {};
     const data = await getH3StatsMap(params);
 
-    // Ранговая нормализация: цвет по месту в отсортированном списке цен,
-    // а не по абсолютному значению. Гарантирует равномерный градиент
-    // независимо от распределения цен в данных.
+    // Ранг по log(цена): сортируем по цене, но t = log-позиция в диапазоне log-цен.
+    // Это гарантирует равномерный градиент (каждый гексагон уникален),
+    // И сохраняет пропорции: 2× разница цены → одинаковый сдвиг цвета везде.
     const pricedItems = data
       .filter(item => item.median_price_per_m2)
       .sort((a, b) => a.median_price_per_m2 - b.median_price_per_m2);
+    const logPrices = pricedItems.map(item => Math.log(item.median_price_per_m2));
+    const logMin = logPrices[0] ?? 0;
+    const logMax = logPrices[logPrices.length - 1] ?? 1;
+    const logRange = logMax - logMin || 1;
     const rankMap = new Map(
       pricedItems.map((item, idx) => [
         item.h3_index,
-        idx / Math.max(pricedItems.length - 1, 1),
+        // среднее между ранговым t и log-масштабным t → баланс равномерности и пропорциональности
+        0.5 * (idx / Math.max(pricedItems.length - 1, 1))
+        + 0.5 * ((Math.log(item.median_price_per_m2) - logMin) / logRange),
       ])
     );
 

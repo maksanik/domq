@@ -57,23 +57,31 @@ const PRICE_MAX = 400_000;
 
 /**
  * Возвращает hex-цвет (#rrggbb) по нормализованному значению t ∈ [0, 1].
- * Градиент: зелёный (t=0) → жёлтый (t=0.5) → красный (t=1).
+ * 7 опорных точек со сдвигом в зелёную сторону:
+ * зелёный → светло-зелёный → жёлто-зелёный → жёлтый → оранжевый → красный → тёмно-красный
+ * t=0..0.5 — зелёная зона, t=0.5 — жёлтый, t=0.5..1 — тёплая зона.
  * @param {number} t
  */
 export function tToColor(t) {
   const s = Math.max(0, Math.min(1, t));
-  let r, g, b;
-  if (s < 0.5) {
-    const u = s * 2;
-    r = Math.round(0x4A + (0xFA - 0x4A) * u);
-    g = Math.round(0xDE + (0xCC - 0xDE) * u);
-    b = Math.round(0x80 + (0x15 - 0x80) * u);
-  } else {
-    const u = (s - 0.5) * 2;
-    r = Math.round(0xFA + (0xEF - 0xFA) * u);
-    g = Math.round(0xCC + (0x44 - 0xCC) * u);
-    b = Math.round(0x15 + (0x44 - 0x15) * u);
-  }
+  const stops = [
+    [0x4A, 0xDE, 0x80],  // #4ADE80 зелёный
+    [0x86, 0xEF, 0xAC],  // #86EFAC светло-зелёный
+    [0xD9, 0xF9, 0x9D],  // #D9F99D жёлто-зелёный
+    [0xFA, 0xCC, 0x15],  // #FACC15 жёлтый
+    [0xF9, 0x73, 0x16],  // #F97316 оранжевый
+    [0xEF, 0x44, 0x44],  // #EF4444 красный
+    [0x7F, 0x1D, 0x1D],  // #7F1D1D тёмно-красный
+  ];
+  const seg = stops.length - 1;
+  const pos = s * seg;
+  const i = Math.min(Math.floor(pos), seg - 1);
+  const u = pos - i;
+  const [r1, g1, b1] = stops[i];
+  const [r2, g2, b2] = stops[i + 1];
+  const r = Math.round(r1 + (r2 - r1) * u);
+  const g = Math.round(g1 + (g2 - g1) * u);
+  const b = Math.round(b1 + (b2 - b1) * u);
   return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
 }
 
