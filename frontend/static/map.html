@@ -247,8 +247,8 @@
 </div>
 
 <script type="module">
-import { getH3StatsMap, getH3Stats } from './api.js';
-import { priceToColor, fmtPpm2, fmtKilo, showToast } from './utils.js';
+import { getH3StatsMap, getH3Stats } from './api.js?v=2';
+import { tToColor, fmtPpm2, fmtKilo, showToast } from './utils.js?v=2';
 
 // ── Map init ──
 const map = L.map('map', { preferCanvas: true }).setView([55.751, 37.617], 12);
@@ -277,28 +277,31 @@ async function loadMap(rooms) {
     const params = rooms != null ? { rooms } : {};
     const data = await getH3StatsMap(params);
 
-    // Динамический диапазон — только ячейки с достаточным кол-вом данных
-    const significantPrices = data
-      .filter(item => item.listings_count >= 3 && item.median_price_per_m2)
-      .map(item => item.median_price_per_m2);
-    const priceMin = significantPrices.length
-      ? Math.min(...significantPrices)
-      : 100_000;
-    const priceMax = significantPrices.length
-      ? Math.max(...significantPrices)
-      : 400_000;
+    // Ранговая нормализация: цвет по месту в отсортированном списке цен,
+    // а не по абсолютному значению. Гарантирует равномерный градиент
+    // независимо от распределения цен в данных.
+    const pricedItems = data
+      .filter(item => item.median_price_per_m2)
+      .sort((a, b) => a.median_price_per_m2 - b.median_price_per_m2);
+    const rankMap = new Map(
+      pricedItems.map((item, idx) => [
+        item.h3_index,
+        idx / Math.max(pricedItems.length - 1, 1),
+      ])
+    );
 
-    // Обновить подписи легенды
-    document.getElementById('legendMin').textContent = fmtKilo(priceMin);
-    document.getElementById('legendMid').textContent = fmtKilo(Math.round((priceMin + priceMax) / 2));
-    document.getElementById('legendMax').textContent = fmtKilo(priceMax) + '+';
+    // Обновить подписи легенды: показываем реальный диапазон данных
+    const legendMin = pricedItems[0]?.median_price_per_m2 ?? 100_000;
+    const legendMax = pricedItems[pricedItems.length - 1]?.median_price_per_m2 ?? 400_000;
+    document.getElementById('legendMin').textContent = fmtKilo(legendMin);
+    document.getElementById('legendMid').textContent = fmtKilo(Math.round((legendMin + legendMax) / 2));
+    document.getElementById('legendMax').textContent = fmtKilo(legendMax) + '+';
 
     data.forEach(item => {
       const boundary = h3.cellToBoundary(item.h3_index); // [[lat,lng], ...]
       const hasData = item.listings_count >= 3;
-      const color = item.median_price_per_m2
-        ? priceToColor(item.median_price_per_m2, priceMin, priceMax)
-        : '#CBD5E1';
+      const t = rankMap.get(item.h3_index);
+      const color = t != null ? tToColor(t) : '#CBD5E1';
 
       const style = hasData
         ? { color: '#fff', weight: 0.8, fillColor: color, fillOpacity: 0.65 }

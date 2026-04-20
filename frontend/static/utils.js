@@ -56,30 +56,36 @@ const PRICE_MIN = 100_000;
 const PRICE_MAX = 400_000;
 
 /**
- * Возвращает hex-цвет (#rrggbb) по медианной цене/м²
- * Градиент: зелёный (дёшево) → жёлтый → красный (дорого)
+ * Возвращает hex-цвет (#rrggbb) по нормализованному значению t ∈ [0, 1].
+ * Градиент: зелёный (t=0) → жёлтый (t=0.5) → красный (t=1).
+ * @param {number} t
+ */
+export function tToColor(t) {
+  const s = Math.max(0, Math.min(1, t));
+  let r, g, b;
+  if (s < 0.5) {
+    const u = s * 2;
+    r = Math.round(0x4A + (0xFA - 0x4A) * u);
+    g = Math.round(0xDE + (0xCC - 0xDE) * u);
+    b = Math.round(0x80 + (0x15 - 0x80) * u);
+  } else {
+    const u = (s - 0.5) * 2;
+    r = Math.round(0xFA + (0xEF - 0xFA) * u);
+    g = Math.round(0xCC + (0x44 - 0xCC) * u);
+    b = Math.round(0x15 + (0x44 - 0x15) * u);
+  }
+  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+}
+
+/**
+ * Возвращает hex-цвет по медианной цене/м² с линейным масштабированием.
  * @param {number} pricePerM2
- * @param {number} [min] - нижняя граница диапазона (по умолчанию PRICE_MIN)
- * @param {number} [max] - верхняя граница диапазона (по умолчанию PRICE_MAX)
+ * @param {number} [min]
+ * @param {number} [max]
  */
 export function priceToColor(pricePerM2, min = PRICE_MIN, max = PRICE_MAX) {
   const range = max - min || 1;
-  const t = Math.max(0, Math.min(1, (pricePerM2 - min) / range));
-  let r, g, b;
-  if (t < 0.5) {
-    // зелёный (#4ADE80) → жёлтый (#FACC15)
-    const s = t * 2;
-    r = Math.round(0x4A + (0xFA - 0x4A) * s);
-    g = Math.round(0xDE + (0xCC - 0xDE) * s);
-    b = Math.round(0x80 + (0x15 - 0x80) * s);
-  } else {
-    // жёлтый (#FACC15) → красный (#EF4444)
-    const s = (t - 0.5) * 2;
-    r = Math.round(0xFA + (0xEF - 0xFA) * s);
-    g = Math.round(0xCC + (0x44 - 0xCC) * s);
-    b = Math.round(0x15 + (0x44 - 0x15) * s);
-  }
-  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+  return tToColor((pricePerM2 - min) / range);
 }
 
 // ─────────────────────────────────────────────
