@@ -357,8 +357,18 @@ async function onCellClick(h3_index) {
     const detail = await getH3Stats(params);
     populatePanel(detail);
   } catch (e) {
-    showToast('Не удалось загрузить статистику района', 'error');
-    document.getElementById('cellArea').textContent = 'Нет данных';
+    if (e.message.startsWith('HTTP 404')) {
+      document.getElementById('cellArea').innerHTML =
+        `<i class="bi bi-hexagon me-1"></i>Нет данных для выбранной комнатности`;
+      document.getElementById('statMedian').textContent = '—';
+      document.getElementById('statAvg').textContent = '—';
+      document.getElementById('statCount').textContent = '—';
+      document.getElementById('statDays').textContent = '—';
+      renderChart([]);
+    } else {
+      showToast('Не удалось загрузить статистику района', 'error');
+      document.getElementById('cellArea').textContent = 'Нет данных';
+    }
   }
 }
 
