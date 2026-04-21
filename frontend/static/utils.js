@@ -86,6 +86,32 @@ export function tToColor(t) {
 }
 
 /**
+ * Возвращает hex-цвет (#rrggbb) по нормализованному t ∈ [0,1]: светло-голубой → тёмно-синий.
+ * @param {number} t
+ */
+export function tToColorCount(t) {
+  const s = Math.max(0, Math.min(1, t));
+  const stops = [
+    [0xE0, 0xF2, 0xFE],  // #E0F2FE очень светлый голубой
+    [0x7D, 0xD3, 0xFC],  // #7DD3FC голубой
+    [0x38, 0xBD, 0xF8],  // #38BDF8 небесный
+    [0x02, 0x84, 0xC7],  // #0284C7 синий
+    [0x1E, 0x40, 0xAF],  // #1E40AF тёмно-синий
+    [0x1E, 0x3A, 0x8A],  // #1E3A8A глубокий синий
+  ];
+  const seg = stops.length - 1;
+  const pos = s * seg;
+  const i = Math.min(Math.floor(pos), seg - 1);
+  const u = pos - i;
+  const [r1, g1, b1] = stops[i];
+  const [r2, g2, b2] = stops[i + 1];
+  const r = Math.round(r1 + (r2 - r1) * u);
+  const g = Math.round(g1 + (g2 - g1) * u);
+  const b = Math.round(b1 + (b2 - b1) * u);
+  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+}
+
+/**
  * Возвращает hex-цвет по медианной цене/м² с линейным масштабированием.
  * @param {number} pricePerM2
  * @param {number} [min]

@@ -158,8 +158,8 @@
 
     <!-- Legend -->
     <div class="map-legend">
-      <div class="legend-title">Медианная цена / м²</div>
-      <div class="legend-gradient"></div>
+      <div class="legend-title" id="legendTitle">Медианная цена / м²</div>
+      <div class="legend-gradient" id="legendGradient"></div>
       <div class="legend-labels">
         <span id="legendMin">100 т₽</span>
         <span id="legendMid">250 т₽</span>
@@ -185,6 +185,13 @@
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div class="panel-toolbar-title"><i class="bi bi-hexagon me-1" style="color:var(--primary)"></i>Тепловая карта</div>
         <div style="font-size:.75rem;color:var(--muted)">H3 res. 9</div>
+      </div>
+      <div>
+        <div style="font-size:.72rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;font-weight:600">Режим</div>
+        <div class="room-chips" id="modeChips">
+          <div class="room-chip active" data-mode="price" style="flex:1;font-size:.75rem">Цена/м²</div>
+          <div class="room-chip" data-mode="count" style="flex:1;font-size:.75rem">Объявления</div>
+        </div>
       </div>
       <div>
         <div style="font-size:.72rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;font-weight:600">Комнатность</div>
@@ -248,7 +255,7 @@
 
 <script type="module">
 import { getH3StatsMap, getH3Stats } from './api.js?v=3';
-import { tToColor, fmtPpm2, fmtKilo, showToast } from './utils.js?v=4';
+import { tToColor, tToColorCount, fmtPpm2, fmtKilo, showToast } from './utils.js?v=4';
 
 // ── Map init ──
 const map = L.map('map', { preferCanvas: true }).setView([55.751, 37.617], 12);
@@ -259,6 +266,7 @@ requestAnimationFrame(() => map.invalidateSize());
 
 // ── State ──
 let currentRooms = null;
+let mapMode = 'price'; // 'price' | 'count'
 let hexLayers = {};
 let chartInstance = null;
 let selectedH3 = null;
@@ -277,37 +285,62 @@ async function loadMap(rooms) {
     const params = rooms != null ? { rooms } : {};
     const data = await getH3StatsMap(params);
 
-    // Ранг по log(цена): сортируем по цене, но t = log-позиция в диапазоне log-цен.
-    // Это гарантирует равномерный градиент (каждый гексагон уникален),
-    // И сохраняет пропорции: 2× разница цены → одинаковый сдвиг цвета везде.
-    const pricedItems = data
-      .filter(item => item.median_price_per_m2)
-      .sort((a, b) => a.median_price_per_m2 - b.median_price_per_m2);
-    const logPrices = pricedItems.map(item => Math.log(item.median_price_per_m2));
-    const logMin = logPrices[0] ?? 0;
-    const logMax = logPrices[logPrices.length - 1] ?? 1;
-    const logRange = logMax - logMin || 1;
-    const rankMap = new Map(
-      pricedItems.map((item, idx) => [
-        item.h3_index,
-        // среднее между ранговым t и log-масштабным t → баланс равномерности и пропорциональности
-        0.5 * (idx / Math.max(pricedItems.length - 1, 1))
-        + 0.5 * ((Math.log(item.median_price_per_m2) - logMin) / logRange),
-      ])
-    );
-
-    // Обновить подписи легенды: показываем реальный диапазон данных
-    const legendMin = pricedItems[0]?.median_price_per_m2 ?? 100_000;
-    const legendMax = pricedItems[pricedItems.length - 1]?.median_price_per_m2 ?? 400_000;
-    document.getElementById('legendMin').textContent = fmtKilo(legendMin);
-    document.getElementById('legendMid').textContent = fmtKilo(Math.round((legendMin + legendMax) / 2));
-    document.getElementById('legendMax').textContent = fmtKilo(legendMax) + '+';
+    let rankMap;
+    if (mapMode === 'price') {
+      const pricedItems = data
+        .filter(item => item.median_price_per_m2)
+        .sort((a, b) => a.median_price_per_m2 - b.median_price_per_m2);
+      const logPrices = pricedItems.map(item => Math.log(item.median_price_per_m2));
+      const logMin = logPrices[0] ?? 0;
+      const logMax = logPrices[logPrices.length - 1] ?? 1;
+      const logRange = logMax - logMin || 1;
+      rankMap = new Map(
+        pricedItems.map((item, idx) => [
+          item.h3_index,
+          0.5 * (idx / Math.max(pricedItems.length - 1, 1))
+          + 0.5 * ((Math.log(item.median_price_per_m2) - logMin) / logRange),
+        ])
+      );
+      const legendMin = pricedItems[0]?.median_price_per_m2 ?? 100_000;
+      const legendMax = pricedItems[pricedItems.length - 1]?.median_price_per_m2 ?? 400_000;
+      document.getElementById('legendTitle').textContent = 'Медианная цена / м²';
+      document.getElementById('legendGradient').style.background =
+        'linear-gradient(to right, #4ADE80, #86EFAC, #D9F99D, #FACC15, #F97316, #EF4444, #7F1D1D)';
+      document.getElementById('legendMin').textContent = fmtKilo(legendMin);
+      document.getElementById('legendMid').textContent = fmtKilo(Math.round((legendMin + legendMax) / 2));
+      document.getElementById('legendMax').textContent = fmtKilo(legendMax) + '+';
+    } else {
+      const countedItems = data
+        .filter(item => item.listings_count > 0)
+        .sort((a, b) => a.listings_count - b.listings_count);
+      const logCounts = countedItems.map(item => Math.log(item.listings_count + 1));
+      const logMin = logCounts[0] ?? 0;
+      const logMax = logCounts[logCounts.length - 1] ?? 1;
+      const logRange = logMax - logMin || 1;
+      rankMap = new Map(
+        countedItems.map((item, idx) => [
+          item.h3_index,
+          0.5 * (idx / Math.max(countedItems.length - 1, 1))
+          + 0.5 * ((Math.log(item.listings_count + 1) - logMin) / logRange),
+        ])
+      );
+      const minCount = countedItems[0]?.listings_count ?? 0;
+      const maxCount = countedItems[countedItems.length - 1]?.listings_count ?? 0;
+      document.getElementById('legendTitle').textContent = 'Кол-во объявлений';
+      document.getElementById('legendGradient').style.background =
+        'linear-gradient(to right, #E0F2FE, #7DD3FC, #38BDF8, #0284C7, #1E40AF, #1E3A8A)';
+      document.getElementById('legendMin').textContent = String(minCount);
+      document.getElementById('legendMid').textContent = String(Math.round((minCount + maxCount) / 2));
+      document.getElementById('legendMax').textContent = String(maxCount) + '+';
+    }
 
     data.forEach(item => {
       const boundary = h3.cellToBoundary(item.h3_index); // [[lat,lng], ...]
       const hasData = item.listings_count >= 3;
       const t = rankMap.get(item.h3_index);
-      const color = t != null ? tToColor(t) : '#CBD5E1';
+      const color = t != null
+        ? (mapMode === 'price' ? tToColor(t) : tToColorCount(t))
+        : '#CBD5E1';
 
       const style = hasData
         ? { color: '#fff', weight: 0.8, fillColor: color, fillOpacity: 0.65 }
@@ -449,6 +482,16 @@ function renderChart(history) {
     },
   });
 }
+
+// ── Mode chips ──
+document.querySelectorAll('#modeChips .room-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('#modeChips .room-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    mapMode = chip.dataset.mode;
+    loadMap(currentRooms);
+  });
+});
 
 // ── Room chips ──
 document.querySelectorAll('#roomChips .room-chip').forEach(chip => {
