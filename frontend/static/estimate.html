@@ -184,12 +184,29 @@
         <div class="card-section-title"><i class="bi bi-geo-alt-fill"></i> Местоположение</div>
 
         <div class="form-group">
-          <label class="form-label">Адрес</label>
-          <div class="input-with-btn">
-            <input class="form-control" type="text" id="addressInput" placeholder="ул. Арбат, 22, Москва" />
-            <button class="find-btn" id="findBtn"><i class="bi bi-search"></i> Найти</button>
+          <label class="form-label">Город</label>
+          <input class="form-control" type="text" id="cityInput" value="Москва" placeholder="Москва" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Улица <span class="req">*</span></label>
+          <input class="form-control" type="text" id="streetInput" placeholder="Ленина" />
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" class="form-group">
+          <div>
+            <label class="form-label">Дом <span class="req">*</span></label>
+            <input class="form-control" type="text" id="houseInput" placeholder="21" />
+          </div>
+          <div>
+            <label class="form-label">Корпус</label>
+            <input class="form-control" type="text" id="corpusInput" placeholder="2 (необязательно)" />
           </div>
         </div>
+
+        <button class="find-btn" id="findBtn" style="width:100%;justify-content:center;margin-bottom:4px">
+          <i class="bi bi-search"></i> Найти на карте
+        </button>
 
         <div class="form-group">
           <div class="coords-row">
@@ -342,7 +359,7 @@
 
 <script type="module">
 import { predictPrice, getH3Stats } from './api.js';
-import { geocodeAddress, fmtRub, fmtPpm2, showToast, startSpinner } from './utils.js';
+import { geocodeStructured, fmtRub, fmtPpm2, showToast, startSpinner } from './utils.js';
 
 // ── Mini map ──
 const miniMap = L.map('miniMap', { zoomControl: true, attributionControl: false }).setView([55.751, 37.617], 12);
@@ -374,19 +391,27 @@ document.querySelectorAll('#roomChips .room-chip').forEach(chip => {
 
 // ── Geocode ──
 document.getElementById('findBtn').addEventListener('click', geocode);
-document.getElementById('addressInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter') geocode();
+['streetInput', 'houseInput', 'corpusInput'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') geocode(); });
 });
 
 async function geocode() {
-  const addr = document.getElementById('addressInput').value.trim();
-  if (!addr) return;
+  const city   = document.getElementById('cityInput').value.trim() || 'Москва';
+  const street = document.getElementById('streetInput').value.trim();
+  const house  = document.getElementById('houseInput').value.trim();
+  const corpus = document.getElementById('corpusInput').value.trim();
+
+  if (!street || !house) {
+    showToast('Укажите улицу и номер дома', 'warn');
+    return;
+  }
+
   const btn = document.getElementById('findBtn');
   const restore = startSpinner(btn);
   try {
-    const result = await geocodeAddress(addr);
+    const result = await geocodeStructured({ city, street, house, corpus });
     if (!result) {
-      showToast('Адрес не найден', 'warn');
+      showToast('Адрес не найден — проверьте данные', 'warn');
       return;
     }
     setCoords(result.lat, result.lon);

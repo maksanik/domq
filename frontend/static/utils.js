@@ -147,6 +147,31 @@ export async function geocodeAddress(address) {
   return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), display_name: data[0].display_name };
 }
 
+/**
+ * Геокодирование структурированного адреса через Nominatim.
+ * Использует отдельные поля вместо свободного запроса — точнее находит дом/корпус.
+ * @param {{ city?: string, street: string, house: string, corpus?: string }} params
+ * @returns {Promise<{ lat: number, lon: number, display_name: string } | null>}
+ */
+export async function geocodeStructured({ city = 'Москва', street, house, corpus }) {
+  const streetQuery = [house, corpus ? `к${corpus}` : null, street].filter(Boolean).join(' ');
+  const url = new URL('https://nominatim.openstreetmap.org/search');
+  url.searchParams.set('street', streetQuery);
+  url.searchParams.set('city', city);
+  url.searchParams.set('country', 'ru');
+  url.searchParams.set('format', 'jsonv2');
+  url.searchParams.set('limit', '1');
+  url.searchParams.set('accept-language', 'ru');
+
+  const res = await fetch(url.toString(), {
+    headers: { 'User-Agent': 'DomQ/1.0 (thesis project)' },
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!data.length) return null;
+  return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), display_name: data[0].display_name };
+}
+
 // ─────────────────────────────────────────────
 // URL-параметры (для кросс-страничной навигации)
 // ─────────────────────────────────────────────
