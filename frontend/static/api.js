@@ -10,7 +10,12 @@ const API_BASE = window.API_BASE ?? '';
 async function apiFetch(path, params = {}) {
   const url = new URL(API_BASE + path, window.location.href);
   Object.entries(params).forEach(([k, v]) => {
-    if (v !== null && v !== undefined && v !== '') url.searchParams.set(k, v);
+    if (v === null || v === undefined || v === '') return;
+    if (Array.isArray(v)) {
+      v.forEach(item => url.searchParams.append(k, item));
+    } else {
+      url.searchParams.set(k, v);
+    }
   });
   const res = await fetch(url.toString());
   if (!res.ok) {
@@ -25,12 +30,14 @@ async function apiFetch(path, params = {}) {
 // ─────────────────────────────────────────────
 /**
  * @param {{
- *   rooms?: number,
+ *   rooms?: number[],
  *   min_price?: number, max_price?: number,
  *   min_area?: number,  max_area?: number,
  *   h3_index?: string,
+ *   building_id?: number,
+ *   is_active?: boolean,
  *   is_hot_deal?: boolean,
- *   sort_by?: 'price'|'price_per_m2'|'discount_percent'|'area_total',
+ *   sort_by?: 'id'|'price'|'price_per_m2'|'discount_percent'|'area_total',
  *   sort_order?: 'asc'|'desc',
  *   limit?: number, offset?: number
  * }} filters

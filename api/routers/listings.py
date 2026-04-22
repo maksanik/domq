@@ -1,6 +1,6 @@
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from schemas.listings import (
     BuildingPin,
@@ -80,16 +80,29 @@ async def get_building_pins(
     return BuildingPinsResponse(items=[BuildingPin(**dict(r)) for r in rows])
 
 
+_SORT_FIELD_MAP = {
+    "id": "l.id",
+    "price": "l.price",
+    "price_per_m2": "l.price_per_m2",
+    "discount_percent": "da.discount_percent",
+    "area_total": "f.area_total",
+}
+
+
 @router.get("", response_model=ListingsResponse)
 async def get_listings(
     request: Request,
-    rooms: Optional[int] = None,
+    rooms: Optional[List[int]] = Query(default=None),
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
+    min_area: Optional[float] = None,
+    max_area: Optional[float] = None,
     h3_index: Optional[str] = None,
     building_id: Optional[int] = None,
     is_active: Optional[bool] = True,
     is_hot_deal: Optional[bool] = None,
+    sort_by: str = "id",
+    sort_order: str = "desc",
     limit: int = 100,
     offset: int = 0,
 ):
@@ -99,14 +112,18 @@ async def get_listings(
     """
     pool = request.app.state.pool
 
+    sort_field = _SORT_FIELD_MAP.get(sort_by, "l.id")
+    sort_dir = "DESC" if sort_order.lower() != "asc" else "ASC"
+
     conditions = ["1=1"]
     params: list = []
     i = 1
 
-    if rooms is not None:
-        conditions.append(f"f.rooms = ${i}")
-        params.append(rooms)
-        i += 1
+    if rooms:
+        placeholders = ", ".join(f"${i + j}" for j in range(len(rooms)))
+        conditions.append(f"f.rooms IN ({placeholders})")
+        params.extend(rooms)
+        i += len(rooms)
     if min_price is not None:
         conditions.append(f"l.price >= ${i}")
         params.append(min_price)
@@ -114,6 +131,14 @@ async def get_listings(
     if max_price is not None:
         conditions.append(f"l.price <= ${i}")
         params.append(max_price)
+        i += 1
+    if min_area is not None:
+        conditions.append(f"f.area_total >= ${i}")
+        params.append(min_area)
+        i += 1
+    if max_area is not None:
+        conditions.append(f"f.area_total <= ${i}")
+        params.append(max_area)
         i += 1
     if h3_index is not None:
         conditions.append(f"b.h3_index = ${i}")
@@ -168,7 +193,7 @@ async def get_listings(
                 l.first_seen_at,
                 l.last_seen_at
             {base_query}
-            ORDER BY l.id DESC
+            ORDER BY {sort_field} {sort_dir} NULLS LAST
             LIMIT ${i} OFFSET ${i + 1}
             """,
             *params,

@@ -118,14 +118,16 @@
     .card-ppm2 { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
     .card-discount { font-size: 0.78rem; color: var(--hot); font-weight: 600; margin-top: 3px; }
 
-    /* ── Load more ── */
-    .load-more-wrap { display: flex; justify-content: center; padding: 0.5rem 1.5rem 2rem; }
-    .load-more-btn {
-      height: 40px; padding: 0 28px; border: 1.5px solid var(--border); border-radius: 10px;
+    /* ── Pagination ── */
+    .pagination-wrap { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 0.5rem 1.5rem 2rem; }
+    .page-btn {
+      height: 36px; padding: 0 18px; border: 1.5px solid var(--border); border-radius: 8px;
       background: #fff; font-size: 0.875rem; font-weight: 600; color: var(--muted);
-      cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all .15s;
+      cursor: pointer; transition: all .15s;
     }
-    .load-more-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .page-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+    .page-btn:disabled { opacity: .4; cursor: default; }
+    .page-info { font-size: 0.875rem; color: var(--muted); white-space: nowrap; }
 
     /* ── Modal ── */
     .modal-content { border-radius: 16px; border: none; box-shadow: 0 25px 60px rgba(0,0,0,.18); }
@@ -261,11 +263,11 @@
 <!-- ── Cards ── -->
 <div class="cards-grid" id="cardsGrid"></div>
 
-<!-- ── Load more ── -->
-<div class="load-more-wrap">
-  <button class="load-more-btn" id="loadMoreBtn" style="display:none">
-    <i class="bi bi-arrow-down-circle"></i> Загрузить ещё
-  </button>
+<!-- ── Pagination ── -->
+<div class="pagination-wrap" id="paginationWrap" style="display:none">
+  <button class="page-btn" id="prevBtn">← Предыдущая</button>
+  <span class="page-info" id="pageInfo">Страница 1 из 1</span>
+  <button class="page-btn" id="nextBtn">Следующая →</button>
 </div>
 
 <!-- ── Detail Modal ── -->
@@ -289,9 +291,11 @@
 import { getListings, getListing } from './api.js';
 import { fmtRub, fmtPpm2, fmtArea, fmtDate, getParam, showToast } from './utils.js';
 
+const PAGE_SIZE = 20;
+
 // ── State ──
 const state = {
-  rooms: null,
+  rooms: new Set(),
   minPrice: null,
   maxPrice: null,
   minArea: null,
@@ -299,11 +303,10 @@ const state = {
   isHotDeal: null,
   h3_index: null,
   building_id: null,
-  offset: 0,
+  page: 1,
   total: 0,
   sortBy: 'discount_percent',
   sortOrder: 'desc',
-  items: [],
 };
 
 // ── Helpers ──
@@ -318,15 +321,6 @@ function debounce(fn, ms) {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
 
-function sortItems(items) {
-  const key = state.sortBy;
-  const dir = state.sortOrder === 'asc' ? 1 : -1;
-  return [...items].sort((a, b) => {
-    const av = a[key] ?? (dir === 1 ? Infinity : -Infinity);
-    const bv = b[key] ?? (dir === 1 ? Infinity : -Infinity);
-    return (av - bv) * dir;
-  });
-}
 
 // ── Card HTML ──
 function buildCardHTML(item) {
@@ -380,21 +374,28 @@ function updateResultsCount() {
   el.innerHTML = `Найдено <strong>${state.total.toLocaleString('ru')}</strong> объявлений`;
 }
 
-function updateLoadMoreBtn() {
-  const btn = document.getElementById('loadMoreBtn');
-  btn.style.display = state.offset < state.total ? 'flex' : 'none';
+function updatePagination() {
+  const totalPages = Math.max(1, Math.ceil(state.total / PAGE_SIZE));
+  const wrap = document.getElementById('paginationWrap');
+  wrap.style.display = totalPages > 1 ? 'flex' : 'none';
+  document.getElementById('pageInfo').textContent = `Страница ${state.page} из ${totalPages}`;
+  document.getElementById('prevBtn').disabled = state.page <= 1;
+  document.getElementById('nextBtn').disabled = state.page >= totalPages;
 }
 
 // ── Fetch ──
 async function fetchAndRender(reset = true) {
-  if (reset) { state.offset = 0; state.items = []; showLoading(); }
+  if (reset) { state.page = 1; }
+  showLoading();
 
   const filters = {
-    limit: 20,
-    offset: state.offset,
+    limit: PAGE_SIZE,
+    offset: (state.page - 1) * PAGE_SIZE,
     is_active: true,
+    sort_by: state.sortBy,
+    sort_order: state.sortOrder,
   };
-  if (state.rooms != null)    filters.rooms = state.rooms;
+  if (state.rooms.size > 0)   filters.rooms = [...state.rooms];
   if (state.minPrice != null) filters.min_price = state.minPrice;
   if (state.maxPrice != null) filters.max_price = state.maxPrice;
   if (state.minArea != null)  filters.min_area = state.minArea;
@@ -406,11 +407,9 @@ async function fetchAndRender(reset = true) {
   try {
     const result = await getListings(filters);
     state.total = result.total;
-    state.items = reset ? result.items : [...state.items, ...result.items];
-    state.offset += result.items.length;
-    renderCards(sortItems(state.items));
+    renderCards(result.items);
     updateResultsCount();
-    updateLoadMoreBtn();
+    updatePagination();
   } catch (e) {
     showToast('Ошибка загрузки: ' + e.message, 'error');
     document.getElementById('cardsGrid').innerHTML =
@@ -459,7 +458,7 @@ function renderModal(item) {
     </div>` : '';
 
   const cianUrl = item.url ?? `https://cian.ru/sale/flat/${item.external_id}/`;
-  const mapUrl = item.h3_index ? `map.html` : 'map.html';
+  const mapUrl = item.h3_index ? `map.html?h3=${item.h3_index}` : 'map.html';
 
   document.getElementById('modalBody').innerHTML = `
     <div class="detail-photo">
@@ -497,17 +496,16 @@ function renderModal(item) {
 
 // ── Wire up filters ──
 
-// Room chips — single select, toggle
+// Room chips — multi-select toggle
 document.querySelectorAll('#roomChips .room-chip').forEach(chip => {
   chip.addEventListener('click', () => {
     const val = parseInt(chip.dataset.rooms);
-    if (state.rooms === val) {
-      state.rooms = null;
+    if (state.rooms.has(val)) {
+      state.rooms.delete(val);
       chip.classList.remove('active');
     } else {
-      document.querySelectorAll('#roomChips .room-chip').forEach(c => c.classList.remove('active'));
+      state.rooms.add(val);
       chip.classList.add('active');
-      state.rooms = val;
     }
     fetchAndRender(true);
   });
@@ -538,7 +536,7 @@ document.getElementById('hotDealsToggle').addEventListener('change', e => {
   fetchAndRender(true);
 });
 
-// Sort select
+// Sort select — triggers server-side re-fetch
 document.getElementById('sortSelect').addEventListener('change', e => {
   const map = {
     'discount':   ['discount_percent', 'desc'],
@@ -548,11 +546,12 @@ document.getElementById('sortSelect').addEventListener('change', e => {
     'ppm2_desc':  ['price_per_m2', 'desc'],
   };
   [state.sortBy, state.sortOrder] = map[e.target.value] ?? ['discount_percent', 'desc'];
-  renderCards(sortItems(state.items));
+  fetchAndRender(true);
 });
 
-// Load more
-document.getElementById('loadMoreBtn').addEventListener('click', () => fetchAndRender(false));
+// Pagination
+document.getElementById('prevBtn').addEventListener('click', () => { state.page--; fetchAndRender(false); });
+document.getElementById('nextBtn').addEventListener('click', () => { state.page++; fetchAndRender(false); });
 
 // Close modal on backdrop click
 document.getElementById('detailModal').addEventListener('click', e => {
@@ -560,7 +559,7 @@ document.getElementById('detailModal').addEventListener('click', e => {
     document.getElementById('detailModal').style.display = 'none';
 });
 
-// Map pick button — clear h3/building filter
+// Map pick button — navigate to map or clear filter
 document.getElementById('mapPickBtn').addEventListener('click', () => {
   if (state.h3_index || state.building_id != null) {
     state.h3_index = null;
@@ -568,6 +567,8 @@ document.getElementById('mapPickBtn').addEventListener('click', () => {
     document.getElementById('mapPickLabel').textContent = 'Выбрать на карте';
     document.getElementById('mapPickBtn').classList.remove('active');
     fetchAndRender(true);
+  } else {
+    window.location.href = 'map.html';
   }
 });
 
