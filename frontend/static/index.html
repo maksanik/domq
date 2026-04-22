@@ -458,7 +458,13 @@ function renderModal(item) {
     </div>` : '';
 
   const cianUrl = item.url ?? `https://cian.ru/sale/flat/${item.external_id}/`;
-  const mapUrl = item.h3_index ? `map.html?h3=${item.h3_index}` : 'map.html';
+  const mapUrl = (() => {
+    const p = new URLSearchParams();
+    if (item.h3_index) p.set('h3', item.h3_index);
+    if (item.latitude)  p.set('lat', item.latitude);
+    if (item.longitude) p.set('lng', item.longitude);
+    return 'map.html?' + p.toString();
+  })();
 
   document.getElementById('modalBody').innerHTML = `
     <div class="detail-photo">

@@ -599,7 +599,26 @@ function clearPins() {
 }
 
 // ── Initial load ──
-loadMap(null);
+const _initParams = new URLSearchParams(location.search);
+const _initH3  = _initParams.get('h3');
+const _initLat = parseFloat(_initParams.get('lat'));
+const _initLng = parseFloat(_initParams.get('lng'));
+
+let _pinMarker = null;
+
+loadMap(null).then(() => {
+  if (_initH3 && hexLayers[_initH3]) {
+    onCellClick(_initH3);
+  }
+
+  if (!isNaN(_initLat) && !isNaN(_initLng)) {
+    map.setView([_initLat, _initLng], 17, { animate: false });
+    _pinMarker = L.marker([_initLat, _initLng]).addTo(map);
+  } else if (_initH3 && hexLayers[_initH3]) {
+    const [lat, lng] = h3.cellToLatLng(_initH3);
+    map.setView([lat, lng], 14, { animate: false });
+  }
+});
 </script>
 </body>
 </html>
