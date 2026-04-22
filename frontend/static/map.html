@@ -120,6 +120,24 @@
       display: flex; flex-direction: column; gap: 6px;
     }
 
+    /* ── Building markers ── */
+    .building-marker {
+      background: var(--primary);
+      color: #fff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 11px;
+      border: 2px solid #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,.35);
+      cursor: pointer;
+      transition: transform .1s;
+      line-height: 1;
+    }
+    .building-marker:hover { transform: scale(1.15); }
+
     /* map loading overlay */
     #mapLoader {
       position: absolute; inset: 0; z-index: 700;
@@ -173,7 +191,7 @@
 
     <!-- Map controls -->
     <div class="map-controls">
-      <button id="togglePins" class="toggle-btn">
+      <button id="togglePins" class="toggle-btn" title="Показать объявления по зданиям (zoom ≥ 14)">
         <i class="bi bi-geo-alt-fill"></i> Объявления
       </button>
     </div>
@@ -254,14 +272,15 @@
 </div>
 
 <script type="module">
-import { getH3StatsMap, getH3Stats } from './api.js?v=3';
+import { getH3StatsMap, getH3Stats, getBuildingPins } from './api.js?v=3';
 import { tToColor, tToColorCount, fmtPpm2, fmtKilo, showToast } from './utils.js?v=4';
 
 // ── Map init ──
-const map = L.map('map', { preferCanvas: true }).setView([55.751, 37.617], 12);
+const map = L.map('map', { preferCanvas: true, zoomControl: false }).setView([55.751, 37.617], 12);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '© OpenStreetMap contributors',
 }).addTo(map);
+L.control.zoom({ position: 'bottomright' }).addTo(map);
 requestAnimationFrame(() => map.invalidateSize());
 
 // ── State ──
@@ -272,6 +291,7 @@ let chartInstance = null;
 let selectedH3 = null;
 let pinMarkers = [];
 let pinsVisible = false;
+const MIN_PINS_ZOOM = 14;
 
 // ── Load and render hexagons ──
 async function loadMap(rooms) {
@@ -502,10 +522,11 @@ document.querySelectorAll('#roomChips .room-chip').forEach(chip => {
     currentRooms = val === '' ? null : parseInt(val);
     loadMap(currentRooms);
     if (selectedH3) onCellClick(selectedH3);
+    if (pinsVisible) loadPins();
   });
 });
 
-// ── Pins toggle (load visible listings as markers) ──
+// ── Pins toggle ──
 document.getElementById('togglePins').addEventListener('click', function () {
   this.classList.toggle('on');
   pinsVisible = this.classList.contains('on');
@@ -516,23 +537,56 @@ document.getElementById('togglePins').addEventListener('click', function () {
   }
 });
 
+// Reload pins on zoom change (show only when zoom >= MIN_PINS_ZOOM)
+map.on('zoomend', () => {
+  if (!pinsVisible) return;
+  if (map.getZoom() >= MIN_PINS_ZOOM) {
+    loadPins();
+  } else {
+    clearPins();
+  }
+});
+
+// Reload pins on pan (new buildings may enter viewport)
+map.on('moveend', () => {
+  if (pinsVisible && map.getZoom() >= MIN_PINS_ZOOM) loadPins();
+});
+
 async function loadPins() {
+  if (map.getZoom() < MIN_PINS_ZOOM) {
+    clearPins();
+    return;
+  }
   clearPins();
-  const bounds = map.getBounds();
-  // Simple bounding-box approximation: fetch up to 200 active listings
   try {
-    const { getListings } = await import('./api.js');
-    const result = await getListings({ limit: 200, is_active: true });
+    const bounds = map.getBounds();
+    const params = {
+      min_lat: bounds.getSouth(),
+      max_lat: bounds.getNorth(),
+      min_lng: bounds.getWest(),
+      max_lng: bounds.getEast(),
+    };
+    if (currentRooms != null) params.rooms = currentRooms;
+    const result = await getBuildingPins(params);
     result.items.forEach(item => {
       if (!item.latitude || !item.longitude) return;
-      if (!bounds.contains([item.latitude, item.longitude])) return;
-      const m = L.circleMarker([item.latitude, item.longitude], {
-        radius: 5, color: item.is_hot_deal ? '#EF4444' : '#2563EB',
-        fillColor: item.is_hot_deal ? '#EF4444' : '#2563EB',
-        fillOpacity: 0.85, weight: 1,
+      const size = Math.round(24 + Math.min(Math.log(item.listings_count + 1) * 4, 14));
+      const marker = L.marker([item.latitude, item.longitude], {
+        icon: L.divIcon({
+          className: '',
+          html: `<div class="building-marker" style="width:${size}px;height:${size}px">${item.listings_count}</div>`,
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+        }),
       }).addTo(map);
-      m.bindPopup(`<strong>${item.address ?? '—'}</strong><br>${(item.price / 1e6).toFixed(1)} млн ₽`);
-      pinMarkers.push(m);
+      marker.bindTooltip(
+        `${item.address ?? '—'}<br><strong>${item.listings_count} объявл.</strong>`,
+        { direction: 'top' }
+      );
+      marker.on('click', () => {
+        window.location.href = `index.html?building_id=${item.building_id}`;
+      });
+      pinMarkers.push(marker);
     });
   } catch {
     // pins are optional — ignore failures

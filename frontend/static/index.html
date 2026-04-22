@@ -298,6 +298,7 @@ const state = {
   maxArea: null,
   isHotDeal: null,
   h3_index: null,
+  building_id: null,
   offset: 0,
   total: 0,
   sortBy: 'discount_percent',
@@ -400,6 +401,7 @@ async function fetchAndRender(reset = true) {
   if (state.maxArea != null)  filters.max_area = state.maxArea;
   if (state.isHotDeal)        filters.is_hot_deal = true;
   if (state.h3_index)         filters.h3_index = state.h3_index;
+  if (state.building_id != null) filters.building_id = state.building_id;
 
   try {
     const result = await getListings(filters);
@@ -558,21 +560,29 @@ document.getElementById('detailModal').addEventListener('click', e => {
     document.getElementById('detailModal').style.display = 'none';
 });
 
-// Map pick button — clear h3 filter
+// Map pick button — clear h3/building filter
 document.getElementById('mapPickBtn').addEventListener('click', () => {
-  if (state.h3_index) {
+  if (state.h3_index || state.building_id != null) {
     state.h3_index = null;
+    state.building_id = null;
     document.getElementById('mapPickLabel').textContent = 'Выбрать на карте';
     document.getElementById('mapPickBtn').classList.remove('active');
     fetchAndRender(true);
   }
 });
 
-// ── Init: read h3 from URL ──
+// ── Init: read h3 / building_id from URL ──
 const h3FromUrl = getParam('h3');
 if (h3FromUrl) {
   state.h3_index = h3FromUrl;
   document.getElementById('mapPickLabel').textContent = h3FromUrl.slice(0, 10) + '…';
+  document.getElementById('mapPickBtn').classList.add('active');
+}
+
+const buildingIdFromUrl = getParam('building_id');
+if (buildingIdFromUrl) {
+  state.building_id = parseInt(buildingIdFromUrl);
+  document.getElementById('mapPickLabel').textContent = 'Конкретное здание';
   document.getElementById('mapPickBtn').classList.add('active');
 }
 

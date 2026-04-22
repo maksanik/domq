@@ -28,3 +28,16 @@ class ListingItem(BaseModel):
 class ListingsResponse(BaseModel):
     total: int
     items: list[ListingItem]
+
+
+class BuildingPin(BaseModel):
+    building_id: int
+    address: Optional[str]
+    latitude: float
+    longitude: float
+    h3_index: Optional[str]
+    listings_count: int
+
+
+class BuildingPinsResponse(BaseModel):
+    items: list[BuildingPin]

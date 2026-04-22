@@ -2,9 +2,82 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 
-from schemas.listings import ListingItem, ListingsResponse
+from schemas.listings import (
+    BuildingPin,
+    BuildingPinsResponse,
+    ListingItem,
+    ListingsResponse,
+)
 
 router = APIRouter(prefix="/listings", tags=["listings"])
+
+
+@router.get("/buildings", response_model=BuildingPinsResponse)
+async def get_building_pins(
+    request: Request,
+    rooms: Optional[int] = None,
+    min_lat: Optional[float] = None,
+    max_lat: Optional[float] = None,
+    min_lng: Optional[float] = None,
+    max_lng: Optional[float] = None,
+):
+    """Здания с количеством активных объявлений для маркеров на карте.
+    Дедупликация по округлённым координатам, фильтр по bounding box вьюпорта.
+    """
+    pool = request.app.state.pool
+
+    conditions = [
+        "l.is_active = true",
+        "b.latitude IS NOT NULL",
+        "b.longitude IS NOT NULL",
+    ]
+    params: list = []
+    i = 1
+
+    if rooms is not None:
+        conditions.append(f"f.rooms = ${i}")
+        params.append(rooms)
+        i += 1
+    if min_lat is not None:
+        conditions.append(f"b.latitude >= ${i}")
+        params.append(min_lat)
+        i += 1
+    if max_lat is not None:
+        conditions.append(f"b.latitude <= ${i}")
+        params.append(max_lat)
+        i += 1
+    if min_lng is not None:
+        conditions.append(f"b.longitude >= ${i}")
+        params.append(min_lng)
+        i += 1
+    if max_lng is not None:
+        conditions.append(f"b.longitude <= ${i}")
+        params.append(max_lng)
+        i += 1
+
+    where = " AND ".join(conditions)
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            SELECT
+                MIN(b.id)                               AS building_id,
+                MIN(b.address)                          AS address,
+                ROUND(b.latitude::numeric, 5)::float    AS latitude,
+                ROUND(b.longitude::numeric, 5)::float   AS longitude,
+                MAX(b.h3_index)                         AS h3_index,
+                COUNT(*)                                AS listings_count
+            FROM listings l
+            JOIN flats f ON l.flat_id = f.id
+            JOIN buildings b ON f.building_id = b.id
+            WHERE {where}
+            GROUP BY ROUND(b.latitude::numeric, 5), ROUND(b.longitude::numeric, 5)
+            ORDER BY listings_count DESC
+            """,
+            *params,
+        )
+
+    return BuildingPinsResponse(items=[BuildingPin(**dict(r)) for r in rows])
 
 
 @router.get("", response_model=ListingsResponse)
@@ -14,6 +87,7 @@ async def get_listings(
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
     h3_index: Optional[str] = None,
+    building_id: Optional[int] = None,
     is_active: Optional[bool] = True,
     is_hot_deal: Optional[bool] = None,
     limit: int = 100,
@@ -44,6 +118,10 @@ async def get_listings(
     if h3_index is not None:
         conditions.append(f"b.h3_index = ${i}")
         params.append(h3_index)
+        i += 1
+    if building_id is not None:
+        conditions.append(f"b.id = ${i}")
+        params.append(building_id)
         i += 1
     if is_active is not None:
         conditions.append(f"l.is_active = ${i}")

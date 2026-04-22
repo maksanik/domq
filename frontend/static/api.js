@@ -41,6 +41,17 @@ export function getListings(filters = {}) {
 }
 
 // ─────────────────────────────────────────────
+// GET /listings/buildings
+// ─────────────────────────────────────────────
+/**
+ * @param {{ rooms?: number }} filters
+ * @returns {Promise<{ items: BuildingPin[] }>}
+ */
+export function getBuildingPins(filters = {}) {
+  return apiFetch('/listings/buildings', filters);
+}
+
+// ─────────────────────────────────────────────
 // GET /listings/:id
 // ─────────────────────────────────────────────
 /** @param {number} id @returns {Promise<ListingItem>} */
@@ -132,4 +143,10 @@ export function getHealth() {
  *   h3_index: string, listings_in_cell: number,
  *   method: string, note: string|null
  * }} PredictResult
+ *
+ * @typedef {{
+ *   building_id: number, address: string,
+ *   latitude: number, longitude: number,
+ *   h3_index: string, listings_count: number
+ * }} BuildingPin
  */
