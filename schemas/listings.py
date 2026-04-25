@@ -1,7 +1,8 @@
+import json
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class ListingItem(BaseModel):
@@ -25,6 +26,13 @@ class ListingItem(BaseModel):
     last_seen_at: Optional[datetime]
     thumbnail_url: Optional[str] = None
     photos: Optional[List[str]] = None
+
+    @field_validator("photos", mode="before")
+    @classmethod
+    def parse_photos(cls, v):
+        if isinstance(v, str):
+            return json.loads(v)
+        return v
 
 
 class ListingsResponse(BaseModel):
