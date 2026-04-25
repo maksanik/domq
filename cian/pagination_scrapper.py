@@ -40,6 +40,11 @@ class PaginationScraper:
         """Извлекает все доступные поля из офферов Cian API и сохраняет в listings_raw."""
         result = []
         for offer in offers:
+            if (
+                offer.get("category") == "flatShareSale"
+                or offer.get("shareAmount") is not None
+            ):
+                continue
             try:
                 geo = offer.get("geo", {})
                 address_parts = geo.get("address", [])
@@ -64,6 +69,11 @@ class PaginationScraper:
                     except (ValueError, AttributeError):
                         pass
 
+                thumbnail_url = photos[0].get("thumbnailUrl") if photos else None
+                photos_urls = [
+                    p["thumbnail2Url"] for p in photos if p.get("thumbnail2Url")
+                ]
+
                 result.append(
                     {
                         "source": "cian",
@@ -85,6 +95,8 @@ class PaginationScraper:
                         "material_type": building.get("materialType"),
                         "images_count": len(photos),
                         "has_photos": len(photos) > 0,
+                        "thumbnail_url": thumbnail_url,
+                        "photos_json": photos_urls or None,
                         "created_at": created_at,
                     }
                 )

@@ -71,6 +71,8 @@ class ListingRaw(Base):
     material_type: Mapped[Optional[str]] = mapped_column(String(50))
     images_count: Mapped[Optional[int]] = mapped_column(Integer)
     has_photos: Mapped[Optional[bool]] = mapped_column(Boolean)
+    thumbnail_url: Mapped[Optional[str]] = mapped_column(Text)
+    photos_json: Mapped[Optional[dict]] = mapped_column(JSONB)
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     parsed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

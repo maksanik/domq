@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -23,6 +23,8 @@ class ListingItem(BaseModel):
     discount_percent: Optional[float]
     first_seen_at: Optional[datetime]
     last_seen_at: Optional[datetime]
+    thumbnail_url: Optional[str] = None
+    photos: Optional[List[str]] = None
 
 
 class ListingsResponse(BaseModel):

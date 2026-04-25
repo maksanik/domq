@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from db.models import ListingRaw, PriceChunk
@@ -118,6 +118,32 @@ class DatabaseManager:
     # listings_raw
     # ------------------------------------------------------------------
 
+    async def purge_all_listings(self) -> dict:
+        """Полная очистка listings_raw и всех зависимых таблиц."""
+        from db.models import (
+            Listing,
+            DealAnalysis,
+            ListingSnapshot,
+            PriceStat,
+            LiquidityStat,
+            PriceHistory,
+        )
+
+        counts = {}
+        for model in [
+            DealAnalysis,
+            ListingSnapshot,
+            Listing,
+            PriceStat,
+            LiquidityStat,
+            PriceHistory,
+            ListingRaw,
+        ]:
+            result = await self.session.execute(delete(model).returning(model.id))
+            counts[model.__tablename__] = len(result.all())
+        await self.session.commit()
+        return counts
+
     async def save_raw_listing(self, listing: dict):
         """Сохраняет сырое объявление. При конфликте (source, external_id) — пропускает."""
         try:
@@ -142,6 +168,8 @@ class DatabaseManager:
                     material_type=listing.get("material_type"),
                     images_count=listing.get("images_count"),
                     has_photos=listing.get("has_photos"),
+                    thumbnail_url=listing.get("thumbnail_url"),
+                    photos_json=listing.get("photos_json"),
                     created_at=listing.get("created_at"),
                 )
                 .on_conflict_do_update(
@@ -151,6 +179,8 @@ class DatabaseManager:
                         "title": listing.get("title"),
                         "images_count": listing.get("images_count"),
                         "has_photos": listing.get("has_photos"),
+                        "thumbnail_url": listing.get("thumbnail_url"),
+                        "photos_json": listing.get("photos_json"),
                         "parsed_at": datetime.now(timezone.utc),
                         "is_active": True,
                         "normalized_at": None,

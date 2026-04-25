@@ -191,7 +191,9 @@ async def get_listings(
                 da.is_hot_deal,
                 da.discount_percent,
                 l.first_seen_at,
-                l.last_seen_at
+                l.last_seen_at,
+                lr.thumbnail_url,
+                lr.photos_json AS photos
             {base_query}
             ORDER BY {sort_field} {sort_dir} NULLS LAST
             LIMIT ${i} OFFSET ${i + 1}
@@ -233,7 +235,9 @@ async def get_listing(request: Request, listing_id: int):
                 da.is_hot_deal,
                 da.discount_percent,
                 l.first_seen_at,
-                l.last_seen_at
+                l.last_seen_at,
+                lr.thumbnail_url,
+                lr.photos_json AS photos
             FROM listings l
             JOIN flats      f  ON l.flat_id     = f.id
             JOIN buildings  b  ON f.building_id = b.id
