@@ -24,6 +24,17 @@ CHUNK_DELAY_MAX = 5.0
 MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 30.0
 
+# rooms_number → params[549][0] для фильтра комнатности Авито
+_AVITO_ROOMS_PARAM = {
+    0: 5695,  # студия
+    1: 5696,
+    2: 5697,
+    3: 5698,
+    4: 5699,
+    5: 5700,
+    6: 5701,
+}
+
 # Фиксированные feature-флаги из рабочего curl-запроса
 _FEATURE_FLAGS = {
     "features[imageAspectRatio]": "1:1",
@@ -94,12 +105,15 @@ class AvitoScraper:
         self.user_data_dir = user_data_dir
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    def _build_url(self, min_price: int, max_price: int, page: int) -> str:
+    def _build_url(
+        self, rooms_number: int, min_price: int, max_price: int, page: int
+    ) -> str:
         params = {
             "categoryId": 24,
             "locationId": 637640,
             "cd": 0,
             "params[201]": 1059,
+            "params[549][0]": _AVITO_ROOMS_PARAM[rooms_number],
             "verticalCategoryId": 1,
             "rootCategoryId": 4,
             "localPriority": 0,
@@ -176,9 +190,9 @@ class AvitoScraper:
         return result
 
     async def _fetch_page(
-        self, context, min_price: int, max_price: int, page: int
+        self, context, rooms_number: int, min_price: int, max_price: int, page: int
     ) -> dict:
-        url = self._build_url(min_price, max_price, page)
+        url = self._build_url(rooms_number, min_price, max_price, page)
         headers = {
             "Accept": "application/json",
             "Accept-Language": "ru,en;q=0.9",
@@ -217,7 +231,9 @@ class AvitoScraper:
             self.logger.info(
                 f"[Avito] Чанк {rooms_number}к {min_price}-{max_price}, стр.{page}"
             )
-            data = await self._fetch_page(context, min_price, max_price, page)
+            data = await self._fetch_page(
+                context, rooms_number, min_price, max_price, page
+            )
             items = (data.get("catalog") or {}).get("items") or []
             if not items:
                 self.logger.info(f"[Avito] Стр.{page}: нет данных, завершение чанка")
@@ -246,7 +262,7 @@ class AvitoScraper:
         self.logger.info("[Avito] Запуск скрапера")
 
         async with Stealth().use_async(async_playwright()) as p:
-            context = await get_browser_context(p, self.user_data_dir)
+            context = await get_browser_context(p, self.user_data_dir, channel="msedge")
             page = context.pages[0] if context.pages else await context.new_page()
             base_page = BasePage(page)
 

@@ -1,5 +1,8 @@
+import argparse
 import asyncio
 import logging
+from typing import Optional
+
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 
@@ -19,8 +22,8 @@ class RangeScraper:
     async def _find_next_price_chunk(
         self, cian_page: CianFilterPage, current_min: int, absolute_max: int
     ) -> dict[str, int]:
-        MAX_LISTINGS = 1000
-        IDEAL_MIN = 800
+        MAX_LISTINGS = 500
+        IDEAL_MIN = 400
         PRICE_STEP = 10000
 
         await cian_page.select_price_range(current_min, absolute_max)
@@ -99,8 +102,16 @@ class RangeScraper:
 
                 current_min = current_max + 1
 
-    async def run(self):
+    async def run(self, rooms: Optional[int] = None, redo: bool = False):
         self.logger.info("Запуск Range Scraper")
+
+        if redo:
+            async with DatabaseManager() as db:
+                deleted = await db.delete_chunks(rooms)
+                label = f"комнат={rooms}" if rooms is not None else "все"
+                self.logger.info(f"Удалено {deleted} чанков ({label})")
+
+        rooms_to_scrape = [rooms] if rooms is not None else list(range(0, 7))
 
         async with Stealth().use_async(async_playwright()) as p:
             self.logger.info("Запуск браузера")
@@ -114,7 +125,7 @@ class RangeScraper:
             await cian_page.human_scroll()
             await cian_page.random_sleep(self.logger)
 
-            for rooms_number in range(1, 7):
+            for rooms_number in rooms_to_scrape:
                 await self.load_price_ranges(cian_page, rooms_number)
 
             self.logger.info("Скрипт завершил работу")
@@ -124,6 +135,20 @@ class RangeScraper:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Сбор ценовых диапазонов с Cian")
+    parser.add_argument(
+        "--rooms",
+        type=int,
+        default=None,
+        help="Кол-во комнат (0–6). Без аргумента — все.",
+    )
+    parser.add_argument(
+        "--redo",
+        action="store_true",
+        help="Удалить существующие чанки и собрать заново.",
+    )
+    args = parser.parse_args()
+
     setup_logging()
     scraper = RangeScraper(user_data_dir=USER_DATA_DIR)
-    asyncio.run(scraper.run())
+    asyncio.run(scraper.run(rooms=args.rooms, redo=args.redo))

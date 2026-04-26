@@ -71,6 +71,16 @@ class DatabaseManager:
         )
         await self.session.commit()
 
+    async def delete_chunks(self, rooms_number: Optional[int] = None) -> int:
+        """Удаляет чанки: все или только для конкретного кол-ва комнат."""
+        stmt = delete(PriceChunk)
+        if rooms_number is not None:
+            stmt = stmt.where(PriceChunk.rooms_number == rooms_number)
+        result = await self.session.execute(stmt.returning(PriceChunk.id))
+        count = len(result.all())
+        await self.session.commit()
+        return count
+
     async def reset_all_chunks(self) -> int:
         """Сбрасывает scraped_at в NULL для всех чанков. Возвращает количество затронутых строк."""
         result = await self.session.execute(

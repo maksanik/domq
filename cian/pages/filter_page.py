@@ -38,13 +38,13 @@ class CianFilterPage(BasePage):
         await self.page.goto(self.url)
 
     async def select_room_count(self, count: int) -> bool:
-        if count < 1 or count > 6:
+        if count < 0 or count > 6:
             self.logger.error("Введён некорректный count в select_room_count")
             raise Exception
 
         await self.scroll_to_top()
 
-        target_label = f"{count}-комнатная"
+        target_label = "Студия" if count == 0 else f"{count}-комнатная"
         self.logger.info(f"Установка фильтра строго на: {target_label}")
 
         try:

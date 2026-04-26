@@ -36,7 +36,7 @@ class PaginationScraper:
         self.user_data_dir = user_data_dir
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    def _extract_listings(self, offers: list) -> list[dict]:
+    def _extract_listings(self, offers: list, rooms_number: int) -> list[dict]:
         """Извлекает все доступные поля из офферов Cian API и сохраняет в listings_raw."""
         result = []
         for offer in offers:
@@ -85,7 +85,9 @@ class PaginationScraper:
                         or (offer.get("bargainTerms") or {}).get("price"),
                         "area_total": offer.get("totalArea"),
                         "area_kitchen": offer.get("kitchenArea"),
-                        "rooms": offer.get("roomsCount"),
+                        "rooms": offer.get("roomsCount")
+                        if offer.get("roomsCount") is not None
+                        else rooms_number,
                         "floor": offer.get("floorNumber"),
                         "floors_total": building.get("floorsCount"),
                         "latitude": lat,
@@ -113,12 +115,16 @@ class PaginationScraper:
         page_num: int,
     ) -> dict:
         """Делает запрос к API Циана и возвращает данные страницы."""
+        # rooms_number=0 (студия) → Cian API ожидает значение 9
+        ROOM_API_VALUE = {0: 9}
+        room_api = ROOM_API_VALUE.get(rooms_number, rooms_number)
+
         payload = {
             "jsonQuery": {
                 "_type": "flatsale",
                 "engine_version": {"type": "term", "value": 2},
                 "region": {"type": "terms", "value": [1]},
-                "room": {"type": "terms", "value": [rooms_number]},
+                "room": {"type": "terms", "value": [room_api]},
                 "price": {
                     "type": "range",
                     "value": {"gte": min_price, "lte": max_price},
@@ -207,7 +213,7 @@ class PaginationScraper:
                 self.logger.info(f"Страница {page_num}: нет данных, завершение чанка")
                 break
 
-            listings = self._extract_listings(offers)
+            listings = self._extract_listings(offers, rooms_number)
             for listing in listings:
                 await db.save_raw_listing(listing)
                 saved += 1

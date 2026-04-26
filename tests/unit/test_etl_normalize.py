@@ -7,6 +7,7 @@ from scripts.etl_normalize import (
     H3_R11_RESOLUTION,
     H3_RESOLUTION,
     get_or_create_building,
+    get_or_create_flat,
     upsert_listing,
 )
 
@@ -145,3 +146,78 @@ async def test_upsert_inactive_listing_creates_offline_snapshot(conn):
     await upsert_listing(conn, raw_id=5, flat_id=2, raw=raw)
     # offline snapshot INSERT + UPDATE = 2 execute calls
     assert conn.execute.call_count == 2
+
+
+# --- get_or_create_flat ---
+
+RAW_FLAT = {
+    "source": "cian",
+    "external_id": "abc",
+    "area_total": 50.0,
+    "area_kitchen": None,
+    "rooms": 2,
+    "floor": 3,
+}
+
+
+async def test_flat_reuses_flat_id_when_external_id_already_listed(conn):
+    """Step 1: external_id уже есть в listings — возвращаем flat_id без INSERT."""
+    conn.fetchrow.return_value = {"flat_id": 42}
+    result = await get_or_create_flat(conn, building_id=1, raw=RAW_FLAT)
+    assert result == 42
+    conn.execute.assert_not_called()
+
+
+async def test_flat_matches_by_building_rooms_floor_area(conn):
+    """Step 2: совпадение по параметрам — возвращаем id без INSERT."""
+    conn.fetchrow.side_effect = [None, {"id": 7}]
+    result = await get_or_create_flat(conn, building_id=5, raw=RAW_FLAT)
+    assert result == 7
+    conn.execute.assert_not_called()
+
+
+async def test_flat_updates_kitchen_area_on_param_match(conn):
+    """Step 2: при совпадении и наличии area_kitchen в raw — UPDATE."""
+    conn.fetchrow.side_effect = [None, {"id": 7}]
+    raw = {**RAW_FLAT, "area_kitchen": 10.5}
+    await get_or_create_flat(conn, building_id=5, raw=raw)
+    conn.execute.assert_called_once()
+
+
+async def test_flat_no_kitchen_update_when_raw_kitchen_is_none(conn):
+    """Step 2: при совпадении без area_kitchen — execute не вызывается."""
+    conn.fetchrow.side_effect = [None, {"id": 7}]
+    await get_or_create_flat(conn, building_id=5, raw=RAW_FLAT)
+    conn.execute.assert_not_called()
+
+
+async def test_flat_inserts_new_when_no_param_match(conn):
+    """Step 3: нет совпадений — INSERT и возврат нового id."""
+    conn.fetchrow.side_effect = [None, None, {"id": 99}]
+    result = await get_or_create_flat(conn, building_id=5, raw=RAW_FLAT)
+    assert result == 99
+
+
+async def test_flat_raises_when_insert_returns_none(conn):
+    """Step 3: INSERT вернул None — RuntimeError."""
+    conn.fetchrow.side_effect = [None, None, None]
+    with pytest.raises(RuntimeError):
+        await get_or_create_flat(conn, building_id=5, raw=RAW_FLAT)
+
+
+async def test_flat_skips_param_search_when_area_is_none(conn):
+    """Без площади step 2 пропускается — сразу INSERT."""
+    conn.fetchrow.side_effect = [None, {"id": 55}]
+    raw = {**RAW_FLAT, "area_total": None}
+    result = await get_or_create_flat(conn, building_id=5, raw=raw)
+    assert result == 55
+    assert conn.fetchrow.call_count == 2
+
+
+async def test_flat_skips_param_search_when_rooms_is_none(conn):
+    """Без rooms step 2 пропускается — сразу INSERT."""
+    conn.fetchrow.side_effect = [None, {"id": 66}]
+    raw = {**RAW_FLAT, "rooms": None}
+    result = await get_or_create_flat(conn, building_id=5, raw=raw)
+    assert result == 66
+    assert conn.fetchrow.call_count == 2

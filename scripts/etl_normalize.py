@@ -126,7 +126,14 @@ async def get_or_create_flat(
             AREA_TOLERANCE,
         )
         if match:
-            return match["id"]
+            flat_id = match["id"]
+            if raw.get("area_kitchen") is not None:
+                await conn.execute(
+                    "UPDATE flats SET area_kitchen = $1 WHERE id = $2 AND area_kitchen IS NULL",
+                    float(raw["area_kitchen"]),
+                    flat_id,
+                )
+            return flat_id
 
     # Шаг 3: создаём новую запись квартиры
     row = await conn.fetchrow(
