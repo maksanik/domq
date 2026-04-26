@@ -167,7 +167,13 @@ async def upsert_listing(
     """
     price = raw.get("price")
     area = raw.get("area_total")
-    price_per_m2 = (float(price) / float(area)) if price and area else None
+    if price and area:
+        ppm2 = float(price) / float(area)
+        price_per_m2 = (
+            ppm2 if ppm2 < 1e8 else None
+        )  # NUMERIC(10,2) max is 99_999_999.99
+    else:
+        price_per_m2 = None
     parsed_at = raw.get("parsed_at")
     is_active = raw.get("is_active", True)
 
@@ -247,6 +253,13 @@ async def process_row(pool: asyncpg.Pool, raw: dict):
                 )
     except Exception as e:
         logger.error(f"Ошибка обработки raw_id={raw_id}: {e}")
+        # Mark as processed so the row is not retried on every batch
+        try:
+            await pool.execute(
+                "UPDATE listings_raw SET normalized_at = NOW() WHERE id = $1", raw_id
+            )
+        except Exception:
+            pass
 
 
 async def process_batch(pool: asyncpg.Pool, rows: list[dict]):

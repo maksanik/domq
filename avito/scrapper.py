@@ -16,13 +16,19 @@ from db.db_manager import DatabaseManager
 AVITO_ITEMS_URL = "https://www.avito.ru/web/1/js/items"
 MAX_PAGES = 100
 
-PAGE_DELAY_MIN = 2.0
-PAGE_DELAY_MAX = 3.5
-CHUNK_DELAY_MIN = 3.0
-CHUNK_DELAY_MAX = 5.0
+PAGE_DELAY_MIN = 4.5
+PAGE_DELAY_MAX = 8.0
+CHUNK_DELAY_MIN = 10.0
+CHUNK_DELAY_MAX = 20.0
+LONG_BREAK_EVERY_N = 5
+LONG_BREAK_MIN = 30.0
+LONG_BREAK_MAX = 60.0
 
 MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 30.0
+
+BLOCK_AUTO_WAIT_MIN = 330.0
+BLOCK_AUTO_WAIT_MAX = 600.0
 
 # rooms_number → params[549][0] для фильтра комнатности Авито
 _AVITO_ROOMS_PARAM = {
@@ -193,15 +199,27 @@ class AvitoScraper:
         self, context, rooms_number: int, min_price: int, max_price: int, page: int
     ) -> dict:
         url = self._build_url(rooms_number, min_price, max_price, page)
+        referer = (
+            "https://www.avito.ru/moskva/kvartiry/prodam"
+            if page == 1
+            else f"https://www.avito.ru/moskva/kvartiry/prodam?p={page}"
+        )
         headers = {
-            "Accept": "application/json",
-            "Accept-Language": "ru,en;q=0.9",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
             "X-Requested-With": "XMLHttpRequest",
             "X-Source": "client-browser",
-            "Referer": f"https://www.avito.ru/moskva/kvartiry/prodam?p={page}",
+            "Referer": referer,
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
         }
         for attempt in range(1, MAX_RETRIES + 1):
             response = await context.request.get(url, headers=headers)
+            if response.status == 403:
+                self.logger.warning(f"HTTP 403 стр.{page} — IP заблокирован, выход")
+                return {}
             if response.status in (429, 503):
                 wait = RETRY_BACKOFF_BASE * (2 ** (attempt - 1)) + random.uniform(0, 10)
                 self.logger.warning(
@@ -225,9 +243,13 @@ class AvitoScraper:
         min_price: int,
         max_price: int,
         listings_count: int,
+        page_browser=None,
+        base_page: BasePage | None = None,
     ):
         saved = 0
-        for page in range(1, MAX_PAGES + 1):
+        block_retry_done = False
+        page = 1
+        while page <= MAX_PAGES:
             self.logger.info(
                 f"[Avito] Чанк {rooms_number}к {min_price}-{max_price}, стр.{page}"
             )
@@ -237,6 +259,21 @@ class AvitoScraper:
             items = (data.get("catalog") or {}).get("items") or []
             if not items:
                 self.logger.info(f"[Avito] Стр.{page}: нет данных, завершение чанка")
+                if (
+                    page == 1
+                    and not block_retry_done
+                    and page_browser is not None
+                    and base_page is not None
+                ):
+                    block_retry_done = True
+                    self.logger.info(
+                        "[Avito] Первая страница пуста — перезагрузка и повтор"
+                    )
+                    await self._reload_page(page_browser, base_page, context)
+                    delay = random.uniform(LONG_BREAK_MIN, LONG_BREAK_MAX)
+                    self.logger.info(f"[Avito] Долгое ожидание {delay:.0f}с")
+                    await asyncio.sleep(delay)
+                    continue
                 break
 
             listings = self._extract_listings(items)
@@ -246,12 +283,87 @@ class AvitoScraper:
 
             self.logger.info(f"[Avito] Стр.{page}: получено {len(listings)} объявлений")
 
+            if len(listings) < 50:
+                self.logger.info(
+                    f"[Avito] Стр.{page}: меньше 50 объявлений ({len(listings)}), завершение чанка"
+                )
+                break
+
             if page < MAX_PAGES:
                 delay = random.uniform(PAGE_DELAY_MIN, PAGE_DELAY_MAX)
                 await asyncio.sleep(delay)
 
+            page += 1
+
         self.logger.info(f"[Avito] Чанк завершён: сохранено {saved} объявлений")
-        await db.mark_chunk_scraped(rooms_number, min_price)
+        if saved > 0:
+            await db.mark_chunk_scraped(rooms_number, min_price)
+        else:
+            self.logger.info(
+                "[Avito] Чанк не помечен scraped — 0 объявлений, будет повторён"
+            )
+
+    async def _is_page_blocked(self, page) -> bool:
+        try:
+            url = page.url
+            if any(
+                marker in url
+                for marker in ("captcha", "block", "access-denied", "sorry")
+            ):
+                return True
+            content = await page.content()
+            return any(
+                marker in content
+                for marker in (
+                    "Доступ ограничен",
+                    "проблема с IP",
+                    "Вы не робот",
+                    "Подтвердите, что вы не робот",
+                    "ip-blocked",
+                    "bot-protection",
+                )
+            )
+        except Exception:
+            return False
+
+    async def _wait_for_unblock(self, page, base_page: BasePage, context) -> None:
+        content = await page.content()
+        is_ip_block = any(m in content for m in ("Доступ ограничен", "проблема с IP"))
+        if is_ip_block:
+            wait = random.uniform(BLOCK_AUTO_WAIT_MIN, BLOCK_AUTO_WAIT_MAX)
+            self.logger.info(
+                f"[Avito] IP-блок — авто-ожидание {wait:.0f}с (~{wait / 60:.1f} мин)"
+            )
+            await asyncio.sleep(wait)
+            await context.clear_cookies()
+            self.logger.info("[Avito] Куки очищены — новая сессия")
+            await page.goto("https://www.avito.ru/moskva/kvartiry/prodam")
+            await asyncio.sleep(random.uniform(3.0, 6.0))
+            if await self._is_page_blocked(page):
+                self.logger.warning(
+                    "[Avito] Всё ещё заблокировано — ожидание пользователя"
+                )
+                await base_page.wait_for_human_captcha()
+        else:
+            await base_page.wait_for_human_captcha()
+
+    async def _inter_chunk_reload(self, page, base_page: BasePage, context) -> None:
+        self.logger.info("[Avito] Обновление сессии между чанками")
+        await page.goto("https://www.avito.ru/moskva/kvartiry/prodam")
+        await base_page.human_scroll()
+        await asyncio.sleep(random.uniform(3.0, 8.0))
+        if await self._is_page_blocked(page):
+            self.logger.warning("[Avito] Блокировка при обновлении сессии")
+            await self._wait_for_unblock(page, base_page, context)
+
+    async def _reload_page(self, page, base_page: BasePage, context) -> None:
+        self.logger.info("[Avito] Перезагрузка браузерной страницы (антидетект)")
+        await page.goto("https://www.avito.ru/moskva/kvartiry/prodam")
+        await base_page.human_scroll()
+        await asyncio.sleep(random.uniform(5.0, 12.0))
+        if await self._is_page_blocked(page):
+            self.logger.warning("[Avito] Обнаружена блокировка/капча")
+            await self._wait_for_unblock(page, base_page, context)
 
     async def run(
         self,
@@ -262,7 +374,7 @@ class AvitoScraper:
         self.logger.info("[Avito] Запуск скрапера")
 
         async with Stealth().use_async(async_playwright()) as p:
-            context = await get_browser_context(p, self.user_data_dir, channel="msedge")
+            context = await get_browser_context(p, self.user_data_dir, channel="chrome")
             page = context.pages[0] if context.pages else await context.new_page()
             base_page = BasePage(page)
 
@@ -271,6 +383,10 @@ class AvitoScraper:
                 await captcha_event.wait()
             else:
                 await base_page.wait_for_human_captcha()
+
+            # Прогрев: скролл + пауза, чтобы сессия выглядела живой
+            await base_page.human_scroll()
+            await asyncio.sleep(random.uniform(2.0, 4.0))
 
             async with DatabaseManager() as db:
                 if chunks is None:
@@ -291,10 +407,19 @@ class AvitoScraper:
                         chunk["min_price"],
                         chunk["max_price"],
                         chunk["listings_count"],
+                        page_browser=page,
+                        base_page=base_page,
                     )
                     if i < len(chunks) - 1:
-                        delay = random.uniform(CHUNK_DELAY_MIN, CHUNK_DELAY_MAX)
-                        self.logger.info(f"[Avito] Пауза {delay:.0f}с между чанками")
+                        await self._inter_chunk_reload(page, base_page, context)
+                        if (i + 1) % LONG_BREAK_EVERY_N == 0:
+                            delay = random.uniform(LONG_BREAK_MIN, LONG_BREAK_MAX)
+                            self.logger.info(f"[Avito] Длинная пауза {delay:.0f}с")
+                        else:
+                            delay = random.uniform(CHUNK_DELAY_MIN, CHUNK_DELAY_MAX)
+                            self.logger.info(
+                                f"[Avito] Пауза {delay:.0f}с между чанками"
+                            )
                         await asyncio.sleep(delay)
 
                 deactivated = await db.deactivate_unseen_listings(
