@@ -97,16 +97,23 @@ class DatabaseManager:
         )
         return [row._asdict() for row in result.all()]
 
-    async def deactivate_unseen_listings(self, since: datetime) -> int:
-        """Помечает is_active=False все объявления, не обновлявшиеся с момента since.
+    async def deactivate_unseen_listings(
+        self, since: datetime, source: str | None = None
+    ) -> int:
+        """Помечает is_active=False объявления, не обновлявшиеся с момента since.
 
-        Вызывается после завершения полного прогона: любое объявление, которое
-        не появилось ни в одном чанке, считается снятым с публикации.
+        Если source указан — деактивирует только объявления этого источника.
         Возвращает количество деактивированных записей.
         """
+        conditions = [
+            ListingRaw.is_active == True,  # noqa: E712
+            ListingRaw.parsed_at < since,
+        ]
+        if source:
+            conditions.append(ListingRaw.source == source)
         result = await self.session.execute(
             update(ListingRaw)
-            .where(ListingRaw.is_active == True, ListingRaw.parsed_at < since)  # noqa: E712
+            .where(*conditions)
             .values(is_active=False, normalized_at=None)
             .returning(ListingRaw.id)
         )

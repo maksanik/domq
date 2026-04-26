@@ -226,7 +226,12 @@ class PaginationScraper:
         self.logger.info(f"Чанк завершён: итого сохранено {saved} объявлений")
         await db.mark_chunk_scraped(rooms_number, min_price)
 
-    async def run(self, rescrape: bool = False):
+    async def run(
+        self,
+        rescrape: bool = False,
+        captcha_event: asyncio.Event | None = None,
+        chunks: list[dict] | None = None,
+    ):
         self.logger.info("Запуск Pagination Scraper")
 
         async with Stealth().use_async(async_playwright()) as p:
@@ -236,14 +241,18 @@ class PaginationScraper:
             base_page = BasePage(page)
 
             await page.goto("https://www.cian.ru/kupit-kvartiru/")
-            await base_page.wait_for_human_captcha()
+            if captcha_event:
+                await captcha_event.wait()
+            else:
+                await base_page.wait_for_human_captcha()
 
             async with DatabaseManager() as db:
-                if rescrape:
-                    count = await db.reset_all_chunks()
-                    self.logger.info(f"--rescrape: сброшено {count} чанков")
+                if chunks is None:
+                    if rescrape:
+                        count = await db.reset_all_chunks()
+                        self.logger.info(f"--rescrape: сброшено {count} чанков")
+                    chunks = await db.get_unscraped_chunks()
 
-                chunks = await db.get_unscraped_chunks()
                 self.logger.info(f"Чанков для скрапинга: {len(chunks)}")
 
                 run_started_at = datetime.now(timezone.utc)
@@ -262,7 +271,9 @@ class PaginationScraper:
                         self.logger.info(f"Пауза {delay:.0f}с между чанками")
                         await asyncio.sleep(delay)
 
-                deactivated = await db.deactivate_unseen_listings(run_started_at)
+                deactivated = await db.deactivate_unseen_listings(
+                    run_started_at, source="cian"
+                )
                 self.logger.info(f"Деактивировано пропавших объявлений: {deactivated}")
 
             self.logger.info("Скрапинг завершён")

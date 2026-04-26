@@ -9,6 +9,7 @@ load_dotenv()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "cian")
 USER_DATA_DIR = os.path.join(BASE_DIR, "cian/cian_profile")
+AVITO_USER_DATA_DIR = os.path.join(BASE_DIR, "avito/avito_profile")
 
 # PostgreSQL — SQLAlchemy async URL (для FastAPI и Alembic)
 DATABASE_URL = os.getenv(

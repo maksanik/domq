@@ -462,7 +462,7 @@ function renderModal(item) {
   const disc = item.discount_percent ? Math.round(item.discount_percent) : 0;
 
   document.getElementById('modalMeta').innerHTML =
-    `ID: ${item.external_id ?? item.id} · Cian.ru`;
+    `ID: ${item.external_id ?? item.id}`;
   document.getElementById('modalTitle').textContent =
     `${item.rooms ?? '?'}-комн. квартира, ${fmtArea(item.area_total)}`;
 
@@ -478,7 +478,23 @@ function renderModal(item) {
       <div class="caption"><i class="bi bi-arrow-down-circle-fill"></i> На ${disc}% ниже среднего — выгодная покупка</div>
     </div>` : '';
 
-  const cianUrl = item.url ?? `https://cian.ru/sale/flat/${item.external_id}/`;
+  const SOURCE_META = {
+    cian:  { label: 'Cian.ru',  fallback: id => `https://cian.ru/sale/flat/${id}/` },
+    avito: { label: 'Avito',    fallback: id => `https://www.avito.ru/item/${id}` },
+  };
+  const activeSources = (item.sources && item.sources.length > 0)
+    ? item.sources
+    : [{ source: item.source || 'cian', url: item.url, external_id: item.external_id, price: item.price }];
+  const multiSource = activeSources.length > 1;
+  const sourceButtonsHTML = activeSources.map(s => {
+    const meta = SOURCE_META[s.source] ?? { label: s.source, fallback: () => '#' };
+    const url = s.url || meta.fallback(s.external_id);
+    const priceLabel = multiSource && s.price != null ? ` · ${fmtRub(s.price)}` : '';
+    return `<a href="${url}" target="_blank" class="btn-primary-custom" style="text-decoration:none">
+      <i class="bi bi-box-arrow-up-right"></i> ${meta.label}${priceLabel}
+    </a>`;
+  }).join('');
+
   const mapUrl = (() => {
     const p = new URLSearchParams();
     if (item.h3_index) p.set('h3', item.h3_index);
@@ -521,9 +537,7 @@ function renderModal(item) {
       · Последнее изменение: <strong style="color:var(--text)">${fmtDate(item.last_seen_at)}</strong>
     </div>
     <div class="modal-actions">
-      <a href="${cianUrl}" target="_blank" class="btn-primary-custom" style="text-decoration:none">
-        <i class="bi bi-box-arrow-up-right"></i> Открыть на Cian
-      </a>
+      ${sourceButtonsHTML}
       <a href="${mapUrl}" class="btn-outline-custom" style="text-decoration:none">
         <i class="bi bi-map"></i> Показать на карте
       </a>

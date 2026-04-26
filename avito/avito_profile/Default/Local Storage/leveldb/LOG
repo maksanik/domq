@@ -1,0 +1,5 @@
+2026/04/26-18:59:36.352 556c Creating DB D:\Перенос\ВУЗ\ВКР\domq\avito\avito_profile\Default\Local Storage\leveldb since it was missing.
+2026/04/26-18:59:36.383 556c Reusing MANIFEST D:\Перенос\ВУЗ\ВКР\domq\avito\avito_profile\Default\Local Storage\leveldb/MANIFEST-000001
+2026/04/26-19:00:36.394 6050 Level-0 table #5: started
+2026/04/26-19:00:36.397 6050 Level-0 table #5: 57210 bytes OK
+2026/04/26-19:00:36.400 6050 Delete type=0 #3

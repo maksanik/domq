@@ -6,6 +6,7 @@ from schemas.listings import (
     BuildingPin,
     BuildingPinsResponse,
     ListingItem,
+    ListingSource,
     ListingsResponse,
 )
 
@@ -81,11 +82,11 @@ async def get_building_pins(
 
 
 _SORT_FIELD_MAP = {
-    "id": "l.id",
-    "price": "l.price",
-    "price_per_m2": "l.price_per_m2",
-    "discount_percent": "da.discount_percent",
-    "area_total": "f.area_total",
+    "id": "id",
+    "price": "price",
+    "price_per_m2": "price_per_m2",
+    "discount_percent": "discount_percent",
+    "area_total": "area_total",
 }
 
 
@@ -159,42 +160,49 @@ async def get_listings(
 
     where = " AND ".join(conditions)
 
-    base_query = f"""
+    # Выбираем по одному листингу на квартиру (flat_id) — с наименьшей ценой,
+    # чтобы одна квартира с нескольких источников не дублировалась в списке.
+    inner_query = f"""
+        SELECT DISTINCT ON (l.flat_id)
+            l.id,
+            lr.source,
+            lr.external_id,
+            lr.url,
+            l.price,
+            l.price_per_m2,
+            f.rooms,
+            f.area_total,
+            f.floor,
+            b.floors_total,
+            b.address,
+            b.latitude,
+            b.longitude,
+            b.h3_index,
+            l.is_active,
+            da.is_hot_deal,
+            da.discount_percent,
+            l.first_seen_at,
+            l.last_seen_at,
+            lr.thumbnail_url,
+            lr.photos_json AS photos
         FROM listings l
         JOIN flats      f  ON l.flat_id     = f.id
         JOIN buildings  b  ON f.building_id = b.id
         JOIN listings_raw lr ON l.raw_id    = lr.id
         LEFT JOIN deal_analysis da ON da.listing_id = l.id
         WHERE {where}
+        ORDER BY l.flat_id, l.price ASC NULLS LAST
     """
 
     async with pool.acquire() as conn:
-        total = await conn.fetchval(f"SELECT COUNT(*) {base_query}", *params)
+        total = await conn.fetchval(
+            f"SELECT COUNT(*) FROM ({inner_query}) _cnt",
+            *params,
+        )
 
         rows = await conn.fetch(
             f"""
-            SELECT
-                l.id,
-                lr.external_id,
-                lr.url,
-                l.price,
-                l.price_per_m2,
-                f.rooms,
-                f.area_total,
-                f.floor,
-                b.floors_total,
-                b.address,
-                b.latitude,
-                b.longitude,
-                b.h3_index,
-                l.is_active,
-                da.is_hot_deal,
-                da.discount_percent,
-                l.first_seen_at,
-                l.last_seen_at,
-                lr.thumbnail_url,
-                lr.photos_json AS photos
-            {base_query}
+            SELECT * FROM ({inner_query}) _best
             ORDER BY {sort_field} {sort_dir} NULLS LAST
             LIMIT ${i} OFFSET ${i + 1}
             """,
@@ -211,7 +219,7 @@ async def get_listings(
 
 @router.get("/{listing_id}", response_model=ListingItem)
 async def get_listing(request: Request, listing_id: int):
-    """Детальная карточка одного объявления."""
+    """Детальная карточка одного объявления со всеми источниками для этой квартиры."""
     pool = request.app.state.pool
 
     async with pool.acquire() as conn:
@@ -219,6 +227,8 @@ async def get_listing(request: Request, listing_id: int):
             """
             SELECT
                 l.id,
+                l.flat_id,
+                lr.source,
                 lr.external_id,
                 lr.url,
                 l.price,
@@ -251,4 +261,18 @@ async def get_listing(request: Request, listing_id: int):
     if not row:
         raise HTTPException(status_code=404, detail="Listing not found")
 
-    return ListingItem(**dict(row))
+    async with pool.acquire() as conn:
+        source_rows = await conn.fetch(
+            """
+            SELECT lr.source, lr.url, lr.external_id, l.price
+            FROM listings l
+            JOIN listings_raw lr ON l.raw_id = lr.id
+            WHERE l.flat_id = $1 AND l.is_active = true
+            ORDER BY l.price ASC NULLS LAST
+            """,
+            row["flat_id"],
+        )
+
+    data = dict(row)
+    data["sources"] = [ListingSource(**dict(r)) for r in source_rows]
+    return ListingItem(**data)
