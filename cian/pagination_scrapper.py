@@ -261,8 +261,6 @@ class PaginationScraper:
 
                 self.logger.info(f"Чанков для скрапинга: {len(chunks)}")
 
-                run_started_at = datetime.now(timezone.utc)
-
                 for i, chunk in enumerate(chunks):
                     await self._scrape_chunk(
                         context,
@@ -277,10 +275,21 @@ class PaginationScraper:
                         self.logger.info(f"Пауза {delay:.0f}с между чанками")
                         await asyncio.sleep(delay)
 
-                deactivated = await db.deactivate_unseen_listings(
-                    run_started_at, source="cian"
-                )
-                self.logger.info(f"Деактивировано пропавших объявлений: {deactivated}")
+                remaining = await db.get_unscraped_chunks()
+                if remaining:
+                    self.logger.info(
+                        f"{len(remaining)} чанков не скрапировано — деактивация пропущена"
+                    )
+                else:
+                    today_start = datetime.now(timezone.utc).replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    )
+                    deactivated = await db.deactivate_unseen_listings(
+                        today_start, source="cian"
+                    )
+                    self.logger.info(
+                        f"Деактивировано пропавших объявлений: {deactivated}"
+                    )
 
             self.logger.info("Скрапинг завершён")
             await asyncio.to_thread(input, "Нажми Enter для закрытия браузера...")
