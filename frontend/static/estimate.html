@@ -232,6 +232,7 @@
         <div class="form-group">
           <label class="form-label">Комнатность <span class="req">*</span></label>
           <div class="room-chips" id="roomChips">
+            <div class="room-chip" data-rooms="0" style="width:auto;padding:0 10px;font-size:0.8rem">Ст</div>
             <div class="room-chip" data-rooms="1">1</div>
             <div class="room-chip active" data-rooms="2">2</div>
             <div class="room-chip" data-rooms="3">3</div>
@@ -476,8 +477,9 @@ async function calculate() {
 
     // Hero
     document.getElementById('heroPrice').textContent = fmtRub(result.predicted_price);
+    const roomsStr = rooms === 0 ? 'Студия' : `${rooms}-комн.`;
     document.getElementById('heroPpm2').textContent =
-      `${fmtPpm2(result.price_per_m2_used)} · ${area} м² · ${rooms}-комн.` +
+      `${fmtPpm2(result.price_per_m2_used)} · ${area} м² · ${roomsStr}` +
       (result.note ? ` · ${result.note}` : '');
     document.getElementById('heroBadges').innerHTML = `
       <div class="price-badge"><i class="bi bi-hexagon"></i> ${result.h3_index ?? '—'}</div>
@@ -581,7 +583,7 @@ function renderChart(history, userPpm2) {
 function renderCompareBar(detail, userPpm2, rooms) {
   const prices = detail.price_history.map(p => p.median_price_per_m2).filter(Boolean);
   document.getElementById('compareTitle').textContent =
-    `Сравнение с рынком микрорайона (${rooms}-комн.)`;
+    `Сравнение с рынком микрорайона (${rooms === 0 ? 'Студия' : rooms + '-комн.'})`;
 
   if (!prices.length) return;
 

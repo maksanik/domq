@@ -214,6 +214,7 @@
     <div>
       <div class="filter-label">Комнатность</div>
       <div class="room-chips" id="roomChips">
+        <div class="room-chip" data-rooms="0" style="width:auto;padding:0 10px;font-size:0.8rem">Ст</div>
         <div class="room-chip" data-rooms="1">1</div>
         <div class="room-chip" data-rooms="2">2</div>
         <div class="room-chip" data-rooms="3">3</div>
@@ -346,8 +347,8 @@ function buildCardHTML(item) {
   const disc = item.discount_percent ? Math.round(item.discount_percent) : 0;
   const hotBadge = isHot && disc
     ? `<span class="hot-badge"><i class="bi bi-fire"></i> −${disc}% от рынка</span>` : '';
-  const roomsBadge = item.rooms
-    ? `<span class="rooms-badge">${item.rooms}-комн.</span>` : '';
+  const roomsBadge = item.rooms != null
+    ? `<span class="rooms-badge">${item.rooms === 0 ? 'Студия' : item.rooms + '-комн.'}</span>` : '';
   const discountLine = isHot && disc
     ? `<div class="card-discount"><i class="bi bi-fire"></i> На ${disc}% ниже медианы района</div>` : '';
   const photoContent = item.thumbnail_url
@@ -463,17 +464,19 @@ function renderModal(item) {
 
   document.getElementById('modalMeta').innerHTML =
     `ID: ${item.external_id ?? item.id}`;
+  const roomLabel = item.rooms === 0 ? 'Студия' : `${item.rooms ?? '?'}-комн. квартира`;
   document.getElementById('modalTitle').textContent =
-    `${item.rooms ?? '?'}-комн. квартира, ${fmtArea(item.area_total)}`;
+    `${roomLabel}, ${fmtArea(item.area_total)}`;
 
   const hotBadge = isHot && disc
     ? `<span style="background:var(--hot-light);color:var(--hot);font-weight:700;font-size:.82rem;padding:4px 10px;border-radius:20px"><i class="bi bi-fire"></i> −${disc}% от рынка</span>`
     : '';
 
   const pct = isHot && disc ? Math.round(100 - disc) : 50;
+  const modalRoomLabel = item.rooms === 0 ? 'Студия' : `${item.rooms ?? '?'}-комн.`;
   const compareBar = isHot && disc ? `
     <div class="compare-bar">
-      <div class="label">Сравнение с медианой микрорайона (${item.rooms ?? '?'}-комн.)</div>
+      <div class="label">Сравнение с медианой микрорайона (${modalRoomLabel})</div>
       <div class="track"><div class="fill" style="width:${pct}%"></div></div>
       <div class="caption"><i class="bi bi-arrow-down-circle-fill"></i> На ${disc}% ниже среднего — выгодная покупка</div>
     </div>` : '';
