@@ -7,6 +7,7 @@ tmp/
 cian_profile/
 avito_profile/
 .git/
+reports/
 
 bot.log
 */cian_data.db

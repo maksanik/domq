@@ -270,6 +270,11 @@ class PricePrediction(Base):
     )
     input_params: Mapped[dict] = mapped_column(JSONB, nullable=False)
     predicted_price: Mapped[Optional[float]] = mapped_column(Numeric(15, 2))
+    knn_predicted_price: Mapped[Optional[float]] = mapped_column(
+        Numeric(15, 2),
+        nullable=True,
+        comment="Прогноз методом KNN (k=10), для сравнения с медианной H3",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

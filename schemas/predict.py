@@ -19,3 +19,7 @@ class PredictResponse(BaseModel):
     listings_in_cell: Optional[int]
     method: str
     note: Optional[str]
+    neighbor_cells: Optional[list[str]] = None
+    knn_predicted_price: Optional[float] = None
+    knn_price_per_m2: Optional[float] = None
+    knn_listings_used: Optional[int] = None

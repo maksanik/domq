@@ -153,6 +153,20 @@
 
     /* Warnings */
     .warn-box { background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 8px; padding: 12px 14px; font-size: .82rem; color: var(--warning); display: flex; gap: 8px; margin-bottom: 12px; }
+
+    /* ── Method comparison ── */
+    .methods-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+    .method-card {
+      border-radius: 10px; padding: 14px 16px; border: 1.5px solid var(--border);
+      background: #fff; display: flex; flex-direction: column; gap: 4px;
+    }
+    .method-card.active { border-color: var(--primary); background: var(--primary-light); }
+    .method-label { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+    .method-price { font-size: 1.15rem; font-weight: 800; color: var(--text); }
+    .method-ppm2  { font-size: .78rem; color: var(--muted); }
+    .method-meta  { font-size: .72rem; color: var(--muted); margin-top: 2px; }
+    .method-diff  { font-size: .78rem; font-weight: 600; margin-top: 4px; }
+    .diff-warn { background: #FEF3C7; border: 1px solid #FDE68A; border-radius: 6px; padding: 8px 12px; font-size: .8rem; color: var(--warning); margin-bottom: 12px; display: none; }
   </style>
 </head>
 <body>
@@ -291,11 +305,15 @@
         <!-- Warnings -->
         <div id="warnLowData" class="warn-box" style="display:none">
           <i class="bi bi-exclamation-triangle-fill" style="flex-shrink:0;margin-top:1px"></i>
-          <div><strong>Мало данных для этого района</strong> — в H3-соте менее 5 объявлений, прогноз приблизительный.</div>
+          <div id="warnLowDataText"><strong>Мало данных для этого района</strong> — в H3-соте менее 5 объявлений, прогноз приблизительный.</div>
         </div>
         <div id="warnNoData" class="warn-box" style="display:none;border-color:#FCA5A5;background:#FEF2F2;color:var(--hot)">
           <i class="bi bi-x-octagon-fill" style="flex-shrink:0;margin-top:1px"></i>
           <div><strong>Нет данных для этого местоположения</strong> — попробуйте выбрать точку на карте вручную.</div>
+        </div>
+        <div id="warnMethodDiff" class="diff-warn">
+          <i class="bi bi-exclamation-circle-fill me-1"></i>
+          <span id="warnMethodDiffText"></span>
         </div>
 
         <!-- Price hero -->
@@ -304,6 +322,23 @@
           <div class="price" id="heroPrice">—</div>
           <div class="ppm2" id="heroPpm2">—</div>
           <div class="badge-row" id="heroBadges"></div>
+        </div>
+
+        <!-- Method comparison -->
+        <div class="methods-grid" id="methodsGrid" style="display:none">
+          <div class="method-card active">
+            <div class="method-label"><i class="bi bi-hexagon me-1"></i>Медианная H3</div>
+            <div class="method-price" id="mcH3Price">—</div>
+            <div class="method-ppm2"  id="mcH3Ppm2">—</div>
+            <div class="method-meta"  id="mcH3Meta">—</div>
+          </div>
+          <div class="method-card" id="knnCard" style="display:none">
+            <div class="method-label"><i class="bi bi-diagram-3 me-1"></i>KNN (k=10)</div>
+            <div class="method-price" id="mcKnnPrice">—</div>
+            <div class="method-ppm2"  id="mcKnnPpm2">—</div>
+            <div class="method-meta"  id="mcKnnMeta">—</div>
+            <div class="method-diff"  id="mcKnnDiff"></div>
+          </div>
         </div>
 
         <!-- Stats -->
@@ -474,6 +509,11 @@ async function calculate() {
     if (result.listings_in_cell != null && result.listings_in_cell < 5) {
       document.getElementById('warnLowData').style.display = 'flex';
     }
+    if (result.method === 'median_h3_neighbors') {
+      document.getElementById('warnLowData').style.display = 'flex';
+      document.getElementById('warnLowDataText').innerHTML =
+        '<strong>Мало данных для этой соты</strong> — прогноз дополнен данными из соседних сот (до 6), точность ниже.';
+    }
 
     // Hero
     document.getElementById('heroPrice').textContent = fmtRub(result.predicted_price);
@@ -491,22 +531,37 @@ async function calculate() {
     document.getElementById('statCount').textContent =
       result.listings_in_cell != null ? `${result.listings_in_cell} объявл.` : '—';
 
+    // Method comparison block
+    renderMethodComparison(result, area, floor, floorsTotal);
+
     // Action links
     if (result.h3_index) {
       document.getElementById('actionListings').href = `index.html?h3=${result.h3_index}`;
     }
 
     // H3 detail for chart, liquidity, compare bar
+    // При method=median_h3_neighbors основная сота может быть пустой —
+    // перебираем соседей до первого, у которого есть история.
     if (result.h3_index) {
+      let detail = null;
       try {
-        const detail = await getH3Stats({ h3_index: result.h3_index, rooms });
+        detail = await getH3Stats({ h3_index: result.h3_index, rooms });
+      } catch {
+        for (const cell of (result.neighbor_cells ?? [])) {
+          if (cell === result.h3_index) continue;
+          try {
+            detail = await getH3Stats({ h3_index: cell, rooms });
+            break;
+          } catch { /* следующая сота */ }
+        }
+      }
+      if (detail) {
         if (detail.liquidity?.median_days != null) {
           document.getElementById('statDays').textContent = `${detail.liquidity.median_days} дней`;
         }
         renderChart(detail.price_history, result.price_per_m2_used);
         renderCompareBar(detail, result.price_per_m2_used, rooms);
-      } catch {
-        // h3 detail is optional — show chart-less results
+      } else {
         renderChart([], result.price_per_m2_used);
       }
     }
@@ -602,6 +657,52 @@ function renderCompareBar(detail, userPpm2, rooms) {
     const sign = diff >= 0 ? '+' : '';
     document.getElementById('compareCaption').innerHTML =
       `<i class="bi bi-check-circle-fill me-1"></i>Ваша квартира: ${fmtPpm2(userPpm2)} — ${sign}${diff}% от медианы`;
+  }
+}
+
+function renderMethodComparison(result, area, floor, floorsTotal) {
+  const grid = document.getElementById('methodsGrid');
+  grid.style.display = 'grid';
+
+  // H3 card
+  const h3Label = result.method === 'median_h3_neighbors' ? 'Медиана H3 + соседи' : 'Медианная H3';
+  document.querySelector('#methodsGrid .method-card .method-label').innerHTML =
+    `<i class="bi bi-hexagon me-1"></i>${h3Label}`;
+  document.getElementById('mcH3Price').textContent = fmtRub(result.predicted_price);
+  document.getElementById('mcH3Ppm2').textContent  = fmtPpm2(result.price_per_m2_used);
+  document.getElementById('mcH3Meta').textContent  =
+    result.listings_in_cell != null
+      ? `${result.listings_in_cell} объявл. в зоне`
+      : 'нет данных о числе объявл.';
+
+  // KNN card
+  const knnCard = document.getElementById('knnCard');
+  if (result.knn_predicted_price != null) {
+    knnCard.style.display = 'flex';
+    document.getElementById('mcKnnPrice').textContent = fmtRub(result.knn_predicted_price);
+    document.getElementById('mcKnnPpm2').textContent  = fmtPpm2(result.knn_price_per_m2);
+    document.getElementById('mcKnnMeta').textContent  =
+      result.knn_listings_used != null ? `${result.knn_listings_used} ближайших аналогов` : '';
+
+    const diff = Math.round(
+      ((result.knn_predicted_price / result.predicted_price) - 1) * 100
+    );
+    const sign = diff >= 0 ? '+' : '';
+    const diffEl = document.getElementById('mcKnnDiff');
+    diffEl.textContent = `${sign}${diff}% к медианной H3`;
+    diffEl.style.color = Math.abs(diff) > 10 ? 'var(--warning)' : 'var(--success)';
+
+    // Предупреждение о расхождении методов > 15%
+    const warnDiff = document.getElementById('warnMethodDiff');
+    if (Math.abs(diff) > 15) {
+      warnDiff.style.display = 'block';
+      document.getElementById('warnMethodDiffText').textContent =
+        `Методы расходятся на ${sign}${diff}% — район неоднородный, используйте оценку осторожно.`;
+    } else {
+      warnDiff.style.display = 'none';
+    }
+  } else {
+    knnCard.style.display = 'none';
   }
 }
 
